@@ -1,0 +1,27 @@
+# 核心依赖
+pandas
+numpy
+scikit-learn
+matplotlib
+requests
+
+# 数据获取
+tushare
+
+# 技术指标计算
+TA-Lib
+
+# 模型训练
+xgboost
+lightgbm
+
+# 回测
+backtrader
+
+# API服务
+Flask
+Flask-CORS
+
+# 工具
+joblib
+python-dotenv
