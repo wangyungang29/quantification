@@ -40,7 +40,7 @@ def predict():
         # 获取股票数据
         import datetime
         today = datetime.datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
+        start_date = (datetime.datetime.now() - datetime.timedelta(days=445)).strftime('%Y%m%d')  # 多拿80天数据（20天+60天）
         
         print(f"正在获取股票 {ts_code} 的数据，时间范围：{start_date} 到 {today}")
         df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=today)
@@ -117,23 +117,38 @@ def predict():
         
         # 计算技术指标
         # 移动平均线
-        df['ma5'] = df['close'].rolling(window=5).mean()
+        df['ma5'] = df['close'].rolling(window=5).mean()  # SMA_5
         df['ma10'] = df['close'].rolling(window=10).mean()
-        df['ma20'] = df['close'].rolling(window=20).mean()
+        df['ma20'] = df['close'].rolling(window=20).mean()  # SMA_20
+        df['ema12'] = df['close'].ewm(span=12, adjust=False).mean()  # EMA_12
+        df['ema26'] = df['close'].ewm(span=26, adjust=False).mean()  # EMA_26
         
-        # RSI
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        # RSI (使用Wilder平滑)
+        def calculate_rsi(series, period=14):
+            delta = series.diff()
+            gain = delta.clip(lower=0)
+            loss = -delta.clip(upper=0)
+            
+            # 使用指数移动平均（Wilder平滑）
+            avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
+            
+            rs = avg_gain / (avg_loss + 1e-8)
+            rsi = 100 - (100 / (1 + rs))
+            return rsi
+        
+        df['rsi'] = calculate_rsi(df['close'], period=14)
         
         # MACD
-        exp1 = df['close'].ewm(span=12, adjust=False).mean()
-        exp2 = df['close'].ewm(span=26, adjust=False).mean()
-        df['macd'] = exp1 - exp2
-        df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-        df['macd_hist'] = df['macd'] - df['macd_signal']
+        def calculate_macd(close_series, fast=12, slow=26, signal=9):
+            ema_fast = close_series.ewm(span=fast, adjust=False).mean()
+            ema_slow = close_series.ewm(span=slow, adjust=False).mean()
+            dif = ema_fast - ema_slow
+            dea = dif.ewm(span=signal, adjust=False).mean()
+            macd_hist = (dif - dea) * 2
+            return dif, dea, macd_hist
+        
+        df['macd'], df['macd_signal'], df['macd_hist'] = calculate_macd(df['close'])
         
         # 布林带
         df['boll_mid'] = df['close'].rolling(window=20).mean()
@@ -149,14 +164,138 @@ def predict():
         true_range = ranges.max(axis=1)
         df['atr'] = true_range.rolling(window=14).mean()
         
+        # 60日均线
+        df['ma60'] = df['close'].rolling(window=60).mean()
+        
         # 计算金叉死叉
-        df['golden_cross'] = 0
-        df['death_cross'] = 0
+        df['golden_cross'] = 0.0
+        df['death_cross'] = 0.0
         for i in range(1, len(df)):
-            if df['ma5'].iloc[i] > df['ma20'].iloc[i] and df['ma5'].iloc[i-1] <= df['ma20'].iloc[i-1]:
-                df['golden_cross'].iloc[i] = 1
-            if df['ma5'].iloc[i] < df['ma20'].iloc[i] and df['ma5'].iloc[i-1] >= df['ma20'].iloc[i-1]:
-                df['death_cross'].iloc[i] = 1
+            try:
+                if not pd.isna(df['ma5'].iloc[i]) and not pd.isna(df['ma20'].iloc[i]) and not pd.isna(df['ma5'].iloc[i-1]) and not pd.isna(df['ma20'].iloc[i-1]):
+                    if df['ma5'].iloc[i] > df['ma20'].iloc[i] and df['ma5'].iloc[i-1] <= df['ma20'].iloc[i-1]:
+                        df.loc[df.index[i], 'golden_cross'] = 1.0
+                    if df['ma5'].iloc[i] < df['ma20'].iloc[i] and df['ma5'].iloc[i-1] >= df['ma20'].iloc[i-1]:
+                        df.loc[df.index[i], 'death_cross'] = 1.0
+            except Exception as e:
+                print(f"计算金叉死叉时出错: {e}")
+                continue
+        
+        # 为历史数据生成交易信号
+        # 使用模型预测来生成买入和卖出信号
+        df['buy_signal'] = 0.0
+        df['sell_signal'] = 0.0
+        df['buy_price'] = 0.0
+        df['sell_price'] = 0.0
+        df['buy_probability'] = 0.0
+        df['sell_probability'] = 0.0
+        
+        # 使用模型预测金叉和死叉（必须在构建history_data之前调用）
+        try:
+            from src.models.model_trainer import ModelTrainer
+            trainer = ModelTrainer()
+            
+            # 检查是否存在训练好的模型，如果不存在则训练
+            golden_model_path = f"src/models/saved/{model_type}_golden_cross_model.joblib"
+            death_model_path = f"src/models/saved/{model_type}_death_cross_model.joblib"
+            price_model_path = f"src/models/saved/{model_type}_price_prediction_model.joblib"
+            
+            import os
+            if not os.path.exists(golden_model_path) or not os.path.exists(death_model_path):
+                print(f"未找到训练好的模型，开始训练...")
+                try:
+                    # 训练金叉预测模型
+                    print('训练金叉预测模型...')
+                    trainer.train_golden_cross_model(df, model_type=model_type)
+                    print('金叉预测模型训练完成')
+                    
+                    # 训练死叉预测模型
+                    print('训练死叉预测模型...')
+                    trainer.train_death_cross_model(df, model_type=model_type)
+                    print('死叉预测模型训练完成')
+                except Exception as e:
+                    print(f"模型训练失败: {e}")
+            
+            # 预测金叉和死叉
+            df = trainer.predict_golden_death_cross(df, model_type=model_type, threshold=0.5)
+            print(f"成功预测金叉和死叉")
+            
+            # 预测t-1的买卖点
+            df = trainer.predict_buy_sell_points(df, model_type=model_type, atr_multiplier=1.0)
+            print(f"成功预测买卖点")
+            
+            # 为历史数据生成模型交易信号
+            # 加载金叉预测模型用于生成信号
+            golden_model = trainer.load_model(f"{model_type}_golden_cross_model")
+            if golden_model is not None:
+                print("使用模型为历史数据生成交易信号...")
+                # 为每一行生成信号
+                for i in range(len(df)):
+                    try:
+                        # 创建特征
+                        df_features, feature_cols = trainer.create_features(df.iloc[:i+1])
+                        if len(df_features) > 0:
+                            # 只使用模型训练时使用的特征
+                            model_features = [col for col in feature_cols if col in golden_model.feature_names_in_]
+                            if len(model_features) > 0:
+                                # 获取当前数据
+                                current_data = df_features.iloc[-1:][model_features]
+                                # 预测概率
+                                y_prob = golden_model.predict_proba(current_data)[0]
+                                buy_probability = y_prob[1]  # 正类（金叉/上涨）概率
+                                sell_probability = 1 - buy_probability  # 负类概率
+                                
+                                # 获取当前数据的连续下降天数和其他指标
+                                current_row = df.iloc[i]
+                                consecutive_down = current_row.get('consecutive_down', 0)
+                                rsi = current_row.get('rsi', 50)
+                                volume_ratio = current_row.get('vol/Vol_MA5', 1.0) if 'vol/Vol_MA5' in current_row else current_row.get('vol_ratio', 1.0)
+                                
+                                # 应用实战应用建议的买入规则
+                                buy_signal = False
+                                if consecutive_down <= 3 and buy_probability > 0.6:
+                                    if (rsi < 30 or volume_ratio > 1.5) and consecutive_down <= 5:
+                                        buy_signal = True
+                                
+                                # 卖出信号：当连续下降天数>5天或预测下跌概率>60%时
+                                sell_signal = sell_probability > 0.6 or consecutive_down > 5
+                                
+                                # 更新信号
+                                df.loc[df.index[i], 'buy_signal'] = 1.0 if buy_signal else 0.0
+                                df.loc[df.index[i], 'sell_signal'] = 1.0 if sell_signal else 0.0
+                                df.loc[df.index[i], 'buy_probability'] = buy_probability
+                                df.loc[df.index[i], 'sell_probability'] = sell_probability
+                    except Exception as e:
+                        print(f"为历史数据生成交易信号时出错: {e}")
+                        continue
+            else:
+                print("未找到模型，使用金叉死叉规则生成交易信号")
+                # 回退到原始的金叉死叉规则
+                for i in range(1, len(df)):
+                    try:
+                        golden_cross_val = float(df['golden_cross'].iloc[i])
+                        death_cross_val = float(df['death_cross'].iloc[i])
+                        if golden_cross_val == 1.0:
+                            df.loc[df.index[i], 'buy_signal'] = 1.0
+                            df.loc[df.index[i], 'buy_price'] = df['close'].iloc[i]
+                        elif death_cross_val == 1.0:
+                            df.loc[df.index[i], 'sell_signal'] = 1.0
+                            df.loc[df.index[i], 'sell_price'] = df['close'].iloc[i]
+                    except Exception as e:
+                        print(f"生成交易信号时出错: {e}")
+                        continue
+        except Exception as e:
+            print(f"预测金叉和死叉失败: {e}")
+            # 如果预测失败，使用默认值
+            df['pred_golden_cross'] = 0
+            df['pred_golden_cross_proba'] = 0.0
+            df['pred_death_cross'] = 0
+            df['pred_death_cross_proba'] = 0.0
+            df['pred_close'] = 0.0
+            df['buy_price'] = 0.0
+            df['sell_price'] = 0.0
+            df['buy_probability'] = 0.0
+            df['sell_probability'] = 0.0
         
         # 获取基本面数据
         try:
@@ -181,34 +320,87 @@ def predict():
             recent_df = df.tail(90)
             for _, row in recent_df.iterrows():
                 # 构建包含所有tushare字段的历史数据
+                # 使用volume字段作为vol的值，因为tushare返回的是volume字段
+                volume_value = float(row['volume']) if 'volume' in row else 0
                 history_item = {
                     'ts_code': ts_code,
                     'date': row['date'].strftime('%Y-%m-%d'),
                     'close': float(row['close']),
-                    'volume': float(row['volume']),
+                    'volume': volume_value,
                     'open': float(row['open']) if 'open' in row else None,
                     'high': float(row['high']) if 'high' in row else None,
                     'low': float(row['low']) if 'low' in row else None,
                     'pre_close': float(row['pre_close']) if 'pre_close' in row else None,
                     'change': float(row['change']) if 'change' in row else None,
                     'pct_chg': float(row['pct_chg']) if 'pct_chg' in row else None,
-                    'vol': float(row['vol']) if 'vol' in row else None,
+                    'vol': volume_value,
                     'amount': float(row['amount']) if 'amount' in row else None,
-                    'ma5': float(row['ma5']) if not pd.isna(row['ma5']) else None,
+                    'ma5': float(row['ma5']) if not pd.isna(row['ma5']) else None,  # SMA_5
                     'ma10': float(row['ma10']) if not pd.isna(row['ma10']) else None,
-                    'ma20': float(row['ma20']) if not pd.isna(row['ma20']) else None,
+                    'ma20': float(row['ma20']) if not pd.isna(row['ma20']) else None,  # SMA_20
+                    'ema12': float(row['ema12']) if not pd.isna(row['ema12']) else None,  # EMA_12
+                    'ema26': float(row['ema26']) if not pd.isna(row['ema26']) else None,  # EMA_26
                     'rsi': float(row['rsi']) if not pd.isna(row['rsi']) else None,
-                    'macd': float(row['macd']) if not pd.isna(row['macd']) else None,
-                    'macd_signal': float(row['macd_signal']) if not pd.isna(row['macd_signal']) else None,
-                    'macd_hist': float(row['macd_hist']) if not pd.isna(row['macd_hist']) else None,
+                    'macd': float(row['macd']) if not pd.isna(row['macd']) else None,  # DIF
+                    'macd_signal': float(row['macd_signal']) if not pd.isna(row['macd_signal']) else None,  # DEA
+                    'macd_hist': float(row['macd_hist']) if not pd.isna(row['macd_hist']) else None,  # MACD Hist
                     'boll_upper': float(row['boll_upper']) if not pd.isna(row['boll_upper']) else None,
                     'boll_mid': float(row['boll_mid']) if not pd.isna(row['boll_mid']) else None,
                     'boll_lower': float(row['boll_lower']) if not pd.isna(row['boll_lower']) else None,
+                    'ma60': float(row['ma60']) if not pd.isna(row['ma60']) else None,  # 60日均线
                     'atr': float(row['atr']) if not pd.isna(row['atr']) else None,
-                    'golden_cross': int(row['golden_cross']),
-                    'death_cross': int(row['death_cross'])
+                    'golden_cross': int(float(row['golden_cross'])) if 'golden_cross' in row else 0,
+                    'death_cross': int(float(row['death_cross'])) if 'death_cross' in row else 0,
+                    'buy_signal': bool(float(row['buy_signal'])) if 'buy_signal' in row else False,
+                    'sell_signal': bool(float(row['sell_signal'])) if 'sell_signal' in row else False,
+                    'buy_price': float(row['buy_price']) if 'buy_price' in row and not pd.isna(row['buy_price']) else 0,
+                    'sell_price': float(row['sell_price']) if 'sell_price' in row and not pd.isna(row['sell_price']) else 0,
+                    'pred_close': float(row['pred_close']) if 'pred_close' in row and not pd.isna(row['pred_close']) else 0,
+                    'consecutive_down': int(row['consecutive_down']) if 'consecutive_down' in row else 0,
+                    'pred_golden_cross': bool(float(row['pred_golden_cross'])) if 'pred_golden_cross' in row else False,
+                    'pred_golden_cross_proba': float(row['pred_golden_cross_proba']) if 'pred_golden_cross_proba' in row else 0.0,
+                    'pred_death_cross': bool(float(row['pred_death_cross'])) if 'pred_death_cross' in row else False,
+                    'buy_probability': float(row['buy_probability']) if 'buy_probability' in row else 0.0,
+                    'sell_probability': float(row['sell_probability']) if 'sell_probability' in row else 0.0,
+                    'pred_death_cross_proba': float(row['pred_death_cross_proba']) if 'pred_death_cross_proba' in row else 0.0
                 }
                 history_data.append(history_item)
+        
+        # 生成交易信号
+        from src.models.model_trainer import ModelTrainer
+        trainer = ModelTrainer()
+        
+        # 准备用于生成交易信号的数据
+        signal_data = df.copy()
+        if 'pct_chg' not in signal_data.columns:
+            signal_data['pct_chg'] = signal_data['close'].pct_change() * 100
+        
+        # 生成交易信号
+        # 这里使用简单的概率阈值生成信号，实际应用中可以使用训练好的模型
+        buy_probability = up_prob
+        sell_probability = down_prob
+        buy_threshold = 0.6
+        sell_threshold = 0.6
+        
+        buy_signal = buy_probability > buy_threshold
+        sell_signal = sell_probability > sell_threshold
+        
+        # 生成消息
+        message = []
+        if buy_signal:
+            message.append(f"⭐ 预测上涨概率较高（{buy_probability:.2%}），建议买入")
+        if sell_signal:
+            message.append(f"❌ 预测下跌概率较高（{sell_probability:.2%}），建议卖出")
+        if not buy_signal and not sell_signal:
+            message.append("📊 预测涨跌概率均较低，建议观望")
+        
+        trading_signals = {
+            'buy_signal': buy_signal,
+            'sell_signal': sell_signal,
+            'buy_probability': float(buy_probability),
+            'sell_probability': float(sell_probability),
+            'message': ' '.join(message)
+        }
         
         # 构建预测结果
         result = {
@@ -229,6 +421,7 @@ def predict():
                 }
             },
             'volatility': float(volatility),
+            'trading_signals': trading_signals,  # 新增交易信号
             'history_data': history_data,
             'fundamentals': fundamentals
         }
@@ -254,27 +447,22 @@ def backtest():
     end_date = data.get('end_date')
     
     try:
-        # 调用主脚本进行回测
-        result = subprocess.run(
-            ['python3', 'main.py', 'backtest', ts_code, start_date, end_date, '--model', model_type],
-            capture_output=True,
-            text=True
-        )
+        # 直接使用Backtester进行回测
+        from src.backtest.backtester import Backtester
+        backtester = Backtester()
         
-        # 解析输出
-        # 注意：这里需要根据main.py的输出格式进行解析
-        # 暂时返回模拟数据
-        return jsonify({
-            'initial_capital': 1000000,
-            'final_value': 1200000,
-            'total_return': 0.2,
-            'sharpe_ratio': 1.5,
-            'max_drawdown': 0.1,
-            'average_return': 0.001,
-            'total_trades': 50,
-            'win_rate': 0.6
-        })
+        # 运行回测
+        results = backtester.run_backtest(ts_code, start_date, end_date, model_type=model_type)
+        
+        if results:
+            return jsonify(results)
+        else:
+            # 如果回测失败，返回错误信息
+            return jsonify({'error': '回测失败，请先训练模型'}), 400
     except Exception as e:
+        print(f"回测失败: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/fetch', methods=['POST'])
