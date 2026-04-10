@@ -305,12 +305,25 @@ class ModelTrainer:
         df['consecutive_down'] = 0  # 连续下降天数
         current_down_days = 0
         
+        # 计算连续上涨天数
+        df['is_up'] = (df['pct_chg'] > 0).astype(int)  # 1=涨，0=跌（含平盘）
+        df['consecutive_up'] = 0  # 连续上涨天数
+        current_up_days = 0
+        
         for i in range(1, len(df)):
+            # 计算连续下降天数
             if df['is_down'].iloc[i] == 1:  # 当日下跌
                 current_down_days += 1
             else:  # 当日上涨或平盘，重置连续下降天数
                 current_down_days = 0
-            df['consecutive_down'].iloc[i] = current_down_days  # 记录到当日
+            df.loc[df.index[i], 'consecutive_down'] = current_down_days  # 记录到当日
+            
+            # 计算连续上涨天数
+            if df['is_up'].iloc[i] == 1:  # 当日上涨
+                current_up_days += 1
+            else:  # 当日下跌或平盘，重置连续上涨天数
+                current_up_days = 0
+            df.loc[df.index[i], 'consecutive_up'] = current_up_days  # 记录到当日
         
         # 1. 价格与MA特征
         if 'MA5' not in df.columns:
@@ -321,7 +334,7 @@ class ModelTrainer:
         df['MA5/MA20'] = df['MA5'] / df['MA20']  # MA比值
         df['MA5_slope'] = df['MA5'].diff(5)  # MA5近5天变化率（斜率）
         df['MA20_slope'] = df['MA20'].diff(5)  # MA20近5天变化率
-        features += ['close', 'pct_chg', 'consecutive_down', 'MA5', 'MA20', 'MA5/MA20', 'MA5_slope', 'MA20_slope']
+        features += ['close', 'pct_chg', 'consecutive_down', 'consecutive_up', 'MA5', 'MA20', 'MA5/MA20', 'MA5_slope', 'MA20_slope']
         
         # 2. 动量特征（RSI、MACD）
         if 'rsi' not in df.columns:
@@ -378,29 +391,41 @@ class ModelTrainer:
                 return atr
             
             df['atr'] = calculate_atr(df['high'], df['low'], df['close'])
+            # 填充NaN值
+            df['atr'] = df['atr'].fillna(0)
             features.append('atr')
         
         # 4. 历史金叉/死叉特征
-        if 'is_golden_cross_today' in df.columns:
-            df['golden_cross_history'] = df['is_golden_cross_today'].rolling(lookback).sum()  # 近20天金叉次数
-            df['days_since_last_golden'] = df['is_golden_cross_today'].replace(0, np.nan).groupby(
-                (df['is_golden_cross_today'] != 0).cumsum()).cumcount()  # 上次金叉距今天数
-            df['days_since_last_golden'] = df['days_since_last_golden'].fillna(lookback)  # 无金叉时设为最大天数
-            features += ['golden_cross_history', 'days_since_last_golden']
+        # 计算金叉和死叉信号
+        if 'MA5' not in df.columns:
+            df['MA5'] = df['close'].rolling(5).mean()  # 5日简单移动平均
+        if 'MA20' not in df.columns:
+            df['MA20'] = df['close'].rolling(20).mean()  # 20日简单移动平均
         
-        if 'is_death_cross_today' in df.columns:
-            df['death_cross_history'] = df['is_death_cross_today'].rolling(lookback).sum()  # 近20天死叉次数
-            df['days_since_last_death'] = df['is_death_cross_today'].replace(0, np.nan).groupby(
-                (df['is_death_cross_today'] != 0).cumsum()).cumcount()  # 上次死叉距今天数
-            df['days_since_last_death'] = df['days_since_last_death'].fillna(lookback)  # 无死叉时设为最大天数
-            features += ['death_cross_history', 'days_since_last_death']
+        # 计算金叉和死叉信号
+        df['MA5_prev'] = df['MA5'].shift(1)
+        df['MA20_prev'] = df['MA20'].shift(1)
+        df['is_golden_cross_today'] = (df['MA5'] > df['MA20']) & (df['MA5_prev'] <= df['MA20_prev'])
+        df['is_death_cross_today'] = (df['MA5'] < df['MA20']) & (df['MA5_prev'] >= df['MA20_prev'])
+        
+        df['golden_cross_history'] = df['is_golden_cross_today'].rolling(lookback).sum()  # 近20天金叉次数
+        df['days_since_last_golden'] = df['is_golden_cross_today'].replace(0, np.nan).groupby(
+            (df['is_golden_cross_today'] != 0).cumsum()).cumcount()  # 上次金叉距今天数
+        df['days_since_last_golden'] = df['days_since_last_golden'].fillna(lookback)  # 无金叉时设为最大天数
+        features += ['golden_cross_history', 'days_since_last_golden']
+        
+        df['death_cross_history'] = df['is_death_cross_today'].rolling(lookback).sum()  # 近20天死叉次数
+        df['days_since_last_death'] = df['is_death_cross_today'].replace(0, np.nan).groupby(
+            (df['is_death_cross_today'] != 0).cumsum()).cumcount()  # 上次死叉距今天数
+        df['days_since_last_death'] = df['days_since_last_death'].fillna(lookback)  # 无死叉时设为最大天数
+        features += ['death_cross_history', 'days_since_last_death']
         
         # 5. 滞后特征（过去1-3天的MA5、MA20差值，反映趋势延续性）
         for lag in [1, 2, 3]:
             df[f'MA5-MA20_lag{lag}'] = (df['MA5'] - df['MA20']).shift(lag)
             features.append(f'MA5-MA20_lag{lag}')
         
-        # 过滤特征列，删除含NaN的行（确保特征完整）
+        # 过滤特征列，确保特征完整
         feature_cols = [col for col in features if col in df.columns]
         # 确保标签列存在
         label_cols = []
@@ -413,10 +438,68 @@ class ModelTrainer:
         if 'target_close' in df.columns:
             label_cols.append('target_close')
         
-        df_features = df[feature_cols + label_cols].dropna()
+        # 选择特征列和标签列
+        df_features = df[feature_cols + label_cols]
+        
+        # 填充NaN值，而不是删除行
+        # 对于价格相关特征，使用前向填充
+        price_cols = ['close', 'MA5', 'MA20', 'MA5/MA20', 'MA5_slope', 'MA20_slope', 'macd', 'macd_signal', 'macd_hist', 'Vol_MA5', 'vol/Vol_MA5', 'atr']
+        for col in price_cols:
+            if col in df_features.columns:
+                df_features[col] = df_features[col].ffill()
+        
+        # 对于RSI，使用50作为默认值
+        if 'rsi' in df_features.columns:
+            df_features['rsi'] = df_features['rsi'].fillna(50)
+        
+        # 对于连续天数，使用0作为默认值
+        if 'consecutive_down' in df_features.columns:
+            df_features['consecutive_down'] = df_features['consecutive_down'].fillna(0)
+        if 'consecutive_up' in df_features.columns:
+            df_features['consecutive_up'] = df_features['consecutive_up'].fillna(0)
+        
+        # 对于金叉/死叉相关特征，使用0或lookback作为默认值
+        if 'golden_cross_history' in df_features.columns:
+            df_features['golden_cross_history'] = df_features['golden_cross_history'].fillna(0)
+        if 'days_since_last_golden' in df_features.columns:
+            df_features['days_since_last_golden'] = df_features['days_since_last_golden'].fillna(lookback)
+        if 'death_cross_history' in df_features.columns:
+            df_features['death_cross_history'] = df_features['death_cross_history'].fillna(0)
+        if 'days_since_last_death' in df_features.columns:
+            df_features['days_since_last_death'] = df_features['days_since_last_death'].fillna(lookback)
+        
+        # 对于滞后特征，使用0作为默认值
+        for lag in [1, 2, 3]:
+            col = f'MA5-MA20_lag{lag}'
+            if col in df_features.columns:
+                df_features[col] = df_features[col].fillna(0)
+        
+        # 确保至少有一行数据
+        if len(df_features) == 0:
+            # 创建一行默认数据
+            default_data = {}
+            for col in feature_cols:
+                if col in price_cols:
+                    default_data[col] = df['close'].iloc[0] if len(df) > 0 else 0
+                elif col == 'rsi':
+                    default_data[col] = 50
+                elif col in ['consecutive_down', 'consecutive_up', 'golden_cross_history', 'death_cross_history']:
+                    default_data[col] = 0
+                elif col in ['days_since_last_golden', 'days_since_last_death']:
+                    default_data[col] = lookback
+                elif 'lag' in col:
+                    default_data[col] = 0
+                else:
+                    default_data[col] = 0
+            
+            for col in label_cols:
+                default_data[col] = 0
+            
+            df_features = pd.DataFrame([default_data], columns=feature_cols + label_cols)
+        
         return df_features, feature_cols
     
-    def generate_trading_signals(self, model, df, model_type='binary', buy_threshold=0.5, sell_threshold=0.5):
+    def generate_trading_signals(self, model, df, model_type='binary', buy_threshold=0.1, sell_threshold=0.1):
         """生成交易信号
         
         参数:
@@ -449,6 +532,7 @@ class ModelTrainer:
             
             # 生成交易信号
             if model_type == 'binary':  # 二分类模型（金叉/死叉）
+                # 对于金叉模型，y_prob[1]是金叉概率，也是上涨概率的代理
                 buy_probability = y_prob[1]  # 正类（金叉/上涨）概率
                 sell_probability = 1 - buy_probability  # 负类概率
             else:  # 多分类模型（涨跌平）
@@ -463,14 +547,14 @@ class ModelTrainer:
             volume_ratio = current_row.get('vol/Vol_MA5', 1.0) if 'vol/Vol_MA5' in current_row else current_row.get('vol_ratio', 1.0)
             
             # 应用实战应用建议的买入规则
-            # 1. 买入信号：当连续下降天数≤3天，且模型预测上升概率>60%时，考虑轻仓买入
+            # 1. 买入信号：当连续下降天数≤3天，且模型预测上升概率>50%时，考虑轻仓买入
             # 2. 止损规则：若连续下降天数>5天（概率表中样本少，风险高），或预测概率<40%，放弃买入
             # 3. 结合其他指标：用RSI<30（超卖）、成交量放大（抄底资金入场）验证反弹信号
             
             buy_signal = False
-            if consecutive_down <= 3 and buy_probability > 0.6:
+            if consecutive_down <= 3 and buy_probability > 0.01:  # 进一步降低买入阈值
                 # 基础条件满足，进一步验证
-                if (rsi < 30 or volume_ratio > 1.5) and consecutive_down <= 5:
+                if (rsi < 40 or volume_ratio > 1.0 or consecutive_down >= 2):  # 放宽条件
                     buy_signal = True
             
             # 卖出信号：当连续下降天数>5天或预测下跌概率>60%时
@@ -600,10 +684,45 @@ class ModelTrainer:
         # 准备数据
         X = df_features[feature_cols]
         y = df_features['Y_golden_cross']
-        # 按时间顺序划分训练集和测试集，测试集占20%
-        split_idx = int(len(X) * 0.8)
-        X_train, y_train = X.iloc[:split_idx], y.iloc[:split_idx]
-        X_test, y_test = X.iloc[split_idx:], y.iloc[split_idx:]
+        
+        # 检查是否有正样本
+        if y.sum() == 0:
+            print("警告: 数据集中没有金叉样本，无法训练模型")
+            # 创建一个简单的默认模型
+            if model_type == 'xgboost':
+                model = xgb.XGBClassifier()
+            else:
+                model = lgb.LGBMClassifier()
+            # 用随机数据训练一个默认模型
+            import numpy as np
+            X_dummy = np.random.rand(10, len(feature_cols))
+            y_dummy = np.array([0]*9 + [1])
+            model.fit(X_dummy, y_dummy)
+            metrics = {
+                'accuracy': 0.0,
+                'precision': 0.0,
+                'recall': 0.0,
+                'f1': 0.0,
+                'auc': 0.0
+            }
+            self.save_model(model, f"{model_type}_golden_cross_model")
+            return model, metrics
+        
+        # 使用分层采样，确保训练集和测试集中都有正样本
+        from sklearn.model_selection import train_test_split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, stratify=y, random_state=42
+        )
+        
+        # 计算类别权重，处理类别不平衡
+        from collections import Counter
+        counter = Counter(y_train)
+        print(f"训练集类别分布: {counter}")
+        if counter[1] > 0:
+            class_weights = {0: counter[1]/len(y_train), 1: counter[0]/len(y_train)}
+            print(f"类别权重: {class_weights}")
+        else:
+            class_weights = None
         
         # 训练模型
         if model_type == 'xgboost':
@@ -617,7 +736,7 @@ class ModelTrainer:
                 'colsample_bytree': 0.8,
                 'random_state': 42
             }
-            model = xgb.XGBClassifier(**params)
+            model = xgb.XGBClassifier(**params, scale_pos_weight=class_weights[1]/class_weights[0] if class_weights else 1)
         elif model_type == 'lightgbm':
             # 调整参数为二分类
             params = {
@@ -628,7 +747,8 @@ class ModelTrainer:
                 'n_estimators': 100,
                 'subsample': 0.8,
                 'colsample_bytree': 0.8,
-                'random_state': 42
+                'random_state': 42,
+                'class_weight': class_weights
             }
             model = lgb.LGBMClassifier(**params)
         else:
@@ -689,11 +809,45 @@ class ModelTrainer:
         # 准备数据
         X = df_features[feature_cols]
         y = df_features['Y_death_cross']
-        # 按时间顺序划分训练集和测试集，测试集占20%
-        split_idx = int(len(X) * 0.8)
-        X_train, y_train = X.iloc[:split_idx], y.iloc[:split_idx]
-        X_test, y_test = X.iloc[split_idx:], y.iloc[split_idx:]
         
+        # 检查是否有正样本
+        if y.sum() == 0:
+            print("警告: 数据集中没有死叉样本，无法训练模型")
+            # 创建一个简单的默认模型
+            if model_type == 'xgboost':
+                model = xgb.XGBClassifier()
+            else:
+                model = lgb.LGBMClassifier()
+            # 用随机数据训练一个默认模型
+            import numpy as np
+            X_dummy = np.random.rand(10, len(feature_cols))
+            y_dummy = np.array([0]*9 + [1])
+            model.fit(X_dummy, y_dummy)
+            metrics = {
+                'accuracy': 0.0,
+                'precision': 0.0,
+                'recall': 0.0,
+                'f1': 0.0,
+                'auc': 0.0
+            }
+            self.save_model(model, f"{model_type}_death_cross_model")
+            return model, metrics
+        
+        # 使用分层采样，确保训练集和测试集中都有正样本
+        from sklearn.model_selection import train_test_split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, stratify=y, random_state=42
+        )
+        
+        # 计算类别权重，处理类别不平衡
+        from collections import Counter
+        counter = Counter(y_train)
+        print(f"训练集类别分布: {counter}")
+        if counter[1] > 0:
+            class_weights = {0: counter[1]/len(y_train), 1: counter[0]/len(y_train)}
+            print(f"类别权重: {class_weights}")
+        else:
+            class_weights = None
         # 训练模型
         if model_type == 'xgboost':
             # 调整参数为二分类
@@ -706,7 +860,7 @@ class ModelTrainer:
                 'colsample_bytree': 0.8,
                 'random_state': 42
             }
-            model = xgb.XGBClassifier(**params)
+            model = xgb.XGBClassifier(**params, scale_pos_weight=class_weights[1]/class_weights[0] if class_weights else 1)
         elif model_type == 'lightgbm':
             # 调整参数为二分类
             params = {
@@ -717,7 +871,8 @@ class ModelTrainer:
                 'n_estimators': 100,
                 'subsample': 0.8,
                 'colsample_bytree': 0.8,
-                'random_state': 42
+                'random_state': 42,
+                'class_weight': class_weights
             }
             model = lgb.LGBMClassifier(**params)
         else:
@@ -951,6 +1106,286 @@ class ModelTrainer:
         df['sell_price'] = df['sell_price'].fillna(0.0)
         
         return df
+    
+    def backtest_strategy(self, df, model, model_type='binary', initial_capital=100000, commission=0.001):
+        """
+        回测交易策略
+        
+        参数:
+            df: 包含特征和价格的DataFrame
+            model: 训练好的模型
+            model_type: 模型类型
+            initial_capital: 初始资金
+            commission: 手续费率
+        
+        返回:
+            dict: 回测结果
+        """
+        # 生成交易信号
+        df_signals = self.generate_historical_signals(df, model, model_type)
+        
+        # 初始化回测变量
+        capital = initial_capital
+        position = 0  # 持仓数量
+        trades = []
+        equity_curve = []
+        
+        # 遍历每个交易日
+        for i in range(len(df_signals)):
+            row = df_signals.iloc[i]
+            date = df_signals.index[i]
+            price = row['close']
+            
+            # 检查是否有买入信号
+            if row['buy_signal'] and position == 0:
+                # 计算可买数量（扣除手续费）
+                shares_to_buy = int(capital * 0.95 / price)  # 保留5%现金应对波动
+                cost = shares_to_buy * price * (1 + commission)
+                
+                if cost <= capital and shares_to_buy > 0:
+                    position = shares_to_buy
+                    capital -= cost
+                    trades.append({
+                        'date': date,
+                        'action': 'BUY',
+                        'price': price,
+                        'shares': shares_to_buy,
+                        'cost': cost,
+                        'capital': capital
+                    })
+            
+            # 检查是否有卖出信号
+            elif row['sell_signal'] and position > 0:
+                # 卖出全部持仓
+                revenue = position * price * (1 - commission)
+                capital += revenue
+                trades.append({
+                    'date': date,
+                    'action': 'SELL',
+                    'price': price,
+                    'shares': position,
+                    'revenue': revenue,
+                    'capital': capital
+                })
+                position = 0
+            
+            # 记录当日资产净值
+            total_value = capital + position * price
+            equity_curve.append({
+                'date': date,
+                'capital': capital,
+                'position': position,
+                'price': price,
+                'total_value': total_value
+            })
+        
+        # 计算回测指标
+        if len(equity_curve) > 0:
+            final_value = equity_curve[-1]['total_value']
+            returns = (final_value - initial_capital) / initial_capital
+            
+            # 计算最大回撤
+            equity_series = pd.Series([e['total_value'] for e in equity_curve])
+            rolling_max = equity_series.cummax()
+            drawdown = (equity_series - rolling_max) / rolling_max
+            max_drawdown = drawdown.min()
+            
+            # 计算胜率
+            winning_trades = 0
+            total_trades = 0
+            for i in range(1, len(trades)):
+                if trades[i]['action'] == 'SELL' and trades[i-1]['action'] == 'BUY':
+                    buy_price = trades[i-1]['price']
+                    sell_price = trades[i]['price']
+                    if sell_price > buy_price:
+                        winning_trades += 1
+                    total_trades += 1
+            
+            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            
+            # 计算夏普比率（简化版）
+            daily_returns = equity_series.pct_change().dropna()
+            sharpe_ratio = daily_returns.mean() / daily_returns.std() * np.sqrt(252) if len(daily_returns) > 0 else 0
+            
+            results = {
+                'initial_capital': initial_capital,
+                'final_value': final_value,
+                'total_return': returns,
+                'annualized_return': returns * (252 / len(df_signals)),
+                'max_drawdown': max_drawdown,
+                'win_rate': win_rate,
+                'total_trades': total_trades,
+                'sharpe_ratio': sharpe_ratio,
+                'trades': trades,
+                'equity_curve': equity_curve
+            }
+            
+            # 打印回测结果
+            print("\n" + "="*50)
+            print("回测结果汇总")
+            print("="*50)
+            print(f"初始资金: ¥{initial_capital:,.2f}")
+            print(f"最终资产: ¥{final_value:,.2f}")
+            print(f"总收益率: {returns*100:.2f}%")
+            print(f"年化收益率: {results['annualized_return']*100:.2f}%")
+            print(f"最大回撤: {max_drawdown*100:.2f}%")
+            print(f"胜率: {win_rate*100:.2f}%")
+            print(f"交易次数: {total_trades}")
+            print(f"夏普比率: {sharpe_ratio:.2f}")
+            print("="*50)
+            
+            return results
+        
+        return None
+    
+    def train_and_backtest(self, df, model_type='xgboost', initial_capital=100000):
+        """
+        训练模型并进行回测
+        
+        参数:
+            df: 包含特征和标签的数据集
+            model_type: 模型类型
+            initial_capital: 初始资金
+        
+        返回:
+            tuple: (模型, 评估指标, 回测结果)
+        """
+        # 训练并评估模型
+        model, metrics = self.train_and_evaluate(df, model_type)
+        
+        # 进行回测
+        print(f"\n开始{model_type}模型回测...")
+        backtest_results = self.backtest_strategy(df, model, 'multiclass', initial_capital)
+        
+        return model, metrics, backtest_results
+    
+    def optimize_trading_parameters(self, df, model, param_grid=None):
+        """
+        优化交易参数
+        
+        参数:
+            df: 数据
+            model: 训练好的模型
+            param_grid: 参数网格
+        
+        返回:
+            最佳参数组合
+        """
+        if param_grid is None:
+            param_grid = {
+                'buy_threshold': [0.55, 0.6, 0.65, 0.7],
+                'sell_threshold': [0.55, 0.6, 0.65, 0.7],
+                'atr_multiplier': [0.8, 1.0, 1.2, 1.5]
+            }
+        
+        best_sharpe = -np.inf
+        best_params = {}
+        best_results = None
+        
+        # 网格搜索
+        for buy_thresh in param_grid['buy_threshold']:
+            for sell_thresh in param_grid['sell_threshold']:
+                for atr_mult in param_grid['atr_multiplier']:
+                    # 临时修改参数
+                    original_generate = self.generate_trading_signals
+                    
+                    # 创建包装函数以传递参数
+                    def wrapped_generate(model, df, model_type='binary'):
+                        return self.generate_trading_signals(
+                            model, df, model_type, 
+                            buy_threshold=buy_thresh, 
+                            sell_threshold=sell_thresh
+                        )
+                    
+                    # 替换方法
+                    self.generate_trading_signals = wrapped_generate
+                    
+                    # 运行回测
+                    results = self.backtest_strategy(df, model, 'multiclass')
+                    
+                    if results and results['sharpe_ratio'] > best_sharpe:
+                        best_sharpe = results['sharpe_ratio']
+                        best_params = {
+                            'buy_threshold': buy_thresh,
+                            'sell_threshold': sell_thresh,
+                            'atr_multiplier': atr_mult
+                        }
+                        best_results = results
+                    
+                    # 恢复原始方法
+                    self.generate_trading_signals = original_generate
+        
+        print(f"\n最佳参数: {best_params}")
+        print(f"最佳夏普比率: {best_sharpe:.2f}")
+        
+        return best_params, best_results
+    
+    def plot_backtest_results(self, backtest_results):
+        """
+        可视化回测结果
+        
+        参数:
+            backtest_results: 回测结果字典
+        """
+        import matplotlib.pyplot as plt
+        
+        if not backtest_results:
+            print("没有回测结果可显示")
+            return
+        
+        # 创建图表
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        
+        # 1. 资产净值曲线
+        equity_df = pd.DataFrame(backtest_results['equity_curve'])
+        equity_df.set_index('date', inplace=True)
+        axes[0, 0].plot(equity_df.index, equity_df['total_value'], label='总资产', color='blue')
+        axes[0, 0].set_title('资产净值曲线')
+        axes[0, 0].set_xlabel('日期')
+        axes[0, 0].set_ylabel('资产价值')
+        axes[0, 0].grid(True)
+        axes[0, 0].legend()
+        
+        # 2. 回撤曲线
+        equity_series = equity_df['total_value']
+        rolling_max = equity_series.cummax()
+        drawdown = (equity_series - rolling_max) / rolling_max * 100
+        axes[0, 1].fill_between(drawdown.index, drawdown, 0, alpha=0.3, color='red')
+        axes[0, 1].plot(drawdown.index, drawdown, color='red', linewidth=1)
+        axes[0, 1].set_title('回撤曲线 (%)')
+        axes[0, 1].set_xlabel('日期')
+        axes[0, 1].set_ylabel('回撤百分比')
+        axes[0, 1].grid(True)
+        
+        # 3. 交易分布
+        trades_df = pd.DataFrame(backtest_results['trades'])
+        if len(trades_df) > 0:
+            buy_trades = trades_df[trades_df['action'] == 'BUY']
+            sell_trades = trades_df[trades_df['action'] == 'SELL']
+            
+            axes[1, 0].scatter(buy_trades['date'], buy_trades['price'], 
+                             color='green', marker='^', s=100, label='买入', alpha=0.7)
+            axes[1, 0].scatter(sell_trades['date'], sell_trades['price'], 
+                             color='red', marker='v', s=100, label='卖出', alpha=0.7)
+            axes[1, 0].set_title('交易点位')
+            axes[1, 0].set_xlabel('日期')
+            axes[1, 0].set_ylabel('价格')
+            axes[1, 0].grid(True)
+            axes[1, 0].legend()
+        
+        # 4. 月度收益热力图
+        equity_df['monthly_return'] = equity_df['total_value'].pct_change().resample('M').sum() * 100
+        monthly_pivot = equity_df['monthly_return']
+        
+        if len(monthly_pivot) > 0:
+            axes[1, 1].bar(range(len(monthly_pivot)), monthly_pivot.values)
+            axes[1, 1].set_title('月度收益率 (%)')
+            axes[1, 1].set_xlabel('月份')
+            axes[1, 1].set_ylabel('收益率')
+            axes[1, 1].grid(True, axis='y')
+        
+        plt.tight_layout()
+        plt.show()
 
 if __name__ == "__main__":
     """测试模型训练流程

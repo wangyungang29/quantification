@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Layout, Menu, Card, Input, Button, Select, Table, Typography, message } from 'antd';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
@@ -59,19 +59,45 @@ const PredictPage: React.FC = () => {
     },
   ];
 
-  const data = result ? [
-    { key: '1', name: '股票代码', value: result.ts_code },
-    { key: '2', name: '最新日期', value: result.latest_date },
-    { key: '3', name: '最新收盘价', value: `${result.latest_close.toFixed(2)}` },
-    { key: '4', name: '预测方向', value: result.prediction.label === 1 ? '上涨' : result.prediction.label === -1 ? '下跌' : '横盘' },
-    { key: '5', name: '上涨概率', value: `${(result.prediction.probability.up * 100).toFixed(2)}%` },
-    { key: '6', name: '横盘概率', value: `${(result.prediction.probability.flat * 100).toFixed(2)}%` },
-    { key: '7', name: '下跌概率', value: `${(result.prediction.probability.down * 100).toFixed(2)}%` },
-    { key: '8', name: '上涨空间', value: `${(result.prediction.price_space.up_space * 100).toFixed(2)}%` },
-    { key: '9', name: '下跌空间', value: `${(result.prediction.price_space.down_space * 100).toFixed(2)}%` },
-    { key: '10', name: '预期价格', value: `${result.prediction.price_space.expected_price.toFixed(2)}` },
-    { key: '11', name: '年化波动率', value: `${(result.volatility * 100).toFixed(2)}%` },
-  ] : [];
+
+
+  const data = useMemo(() => {
+console.log('-----')
+    if ([undefined, {} as any].includes(result)) {
+      return []
+    }
+    if (result) {
+      // 浮动价格
+      let floatPrice = result.latest_close;
+      // 如果下跌概率大于上涨
+      if (result.prediction.probability.down > result.prediction.probability.up) {
+        console.log(result.prediction.price_space.down_space,'下跌空间');
+        floatPrice = result.latest_close * (1 - result.prediction.price_space.down_space );
+      }
+      // 如果上涨概率大于下跌
+      if (result.prediction.probability.up > result.prediction.probability.down) {
+        console.log(result.prediction.price_space.up_space,'上涨空间');
+        floatPrice = result.latest_close * (1 + result.prediction.price_space.up_space );
+      }
+      console.log(floatPrice,'预期价格',result.prediction.probability.up , result.prediction.probability.down);
+      return [
+        { key: '1', name: '股票代码', value: result.ts_code },
+        { key: '2', name: '最新日期', value: result.latest_date },
+        { key: '3', name: '最新收盘价', value: `${result.latest_close.toFixed(2)}` },
+        { key: '4', name: '预测方向', value: result.prediction.label === 1 ? '上涨' : result.prediction.label === -1 ? '下跌' : '横盘' },
+        { key: '5', name: '上涨概率', value: `${(result.prediction.probability.up * 100).toFixed(2)}%` },
+        { key: '6', name: '横盘概率', value: `${(result.prediction.probability.flat * 100).toFixed(2)}%` },
+        { key: '7', name: '下跌概率', value: `${(result.prediction.probability.down * 100).toFixed(2)}%` },
+        { key: '8', name: '上涨空间', value: `${(result.prediction.price_space.up_space * 100).toFixed(2)}%` },
+        { key: '9', name: '下跌空间', value: `${(result.prediction.price_space.down_space * 100).toFixed(2)}%` },
+        { key: '10', name: '预期价格', value: `${floatPrice.toFixed(2)}` },
+        { key: '11', name: '年化波动率', value: `${(result.volatility * 100).toFixed(2)}%` },
+      ]
+    }
+
+  }, [result]);
+
+
 
   return (
     <Layout>

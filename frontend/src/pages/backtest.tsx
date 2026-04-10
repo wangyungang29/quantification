@@ -24,8 +24,8 @@ const BacktestPage: React.FC = () => {
   const [stockCode, setStockCode] = useState('600519.SH');
   const [modelType, setModelType] = useState('xgboost');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
-    dayjs('2023-01-01'),
-    dayjs('2023-12-31')
+    dayjs('2025-01-01'),
+    dayjs('2025-12-31')
   ]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);

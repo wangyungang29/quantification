@@ -79,21 +79,24 @@ const PredictPage: React.FC = () => {
   // ECharts实例引用
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstance = useRef<echarts.ECharts | null>(null)
+  const lightgbmChartRef = useRef<HTMLDivElement>(null)
+  const lightgbmChartInstance = useRef<echarts.ECharts | null>(null)
 
   // 初始化和更新图表
   useEffect(() => {
-    if (stockData.length > 0 && chartRef.current) {
-      // 初始化ECharts实例
-      if (!chartInstance.current) {
-        chartInstance.current = echarts.init(chartRef.current)
-      }
+    if (stockData.length > 0) {
+      // 初始化XGBoost图表
+      if (chartRef.current) {
+        if (!chartInstance.current) {
+          chartInstance.current = echarts.init(chartRef.current)
+        }
 
-      // 准备数据
-      const dates = stockData.map(item => item.date)
-      const closePrices = stockData.map(item => item.close)
-      const volumes = stockData.map(item => item.volume)
+        // 准备数据
+        const dates = stockData.map(item => item.date)
+        const closePrices = stockData.map(item => item.close)
+        const volumes = stockData.map(item => item.volume)
 
-      // 准备买入点和卖出点数据
+        // 准备买入点和卖出点数据
         const buyPoints = [];
         const sellPoints = [];
         const predBuyPoints = [];
@@ -103,7 +106,7 @@ const PredictPage: React.FC = () => {
         const predDeathCrossPoints = [];
         const actualGoldenCrossPoints = [];
         const actualDeathCrossPoints = [];
-        
+
         for (let i = 0; i < stockData.length; i++) {
           const item = stockData[i];
           if (item.buy_signal && item.buy_price > 0) {
@@ -141,6 +144,7 @@ const PredictPage: React.FC = () => {
         const option = {
           tooltip: {
             trigger: 'axis',
+            width: 500,
             axisPointer: {
               type: 'cross',
               label: {
@@ -150,7 +154,9 @@ const PredictPage: React.FC = () => {
             formatter: (params: any) => {
               const dataIndex = params[0].dataIndex;
               const data = stockData[dataIndex];
-              let tooltipContent = `<div style="font-weight:bold;margin-bottom:5px">${data.date}</div>`;
+              console.log();
+              let tooltipContent = `<div style="width: 500px;display: flex;flex-direction: row;"><div>`;
+              tooltipContent += `<div style="font-weight:bold;margin-bottom:5px">${data.date}</div>`;
               tooltipContent += `<div>股票代码: ${data.ts_code}</div>`;
               tooltipContent += `<div>开盘价: ${data.open !== undefined && data.open !== null ? data.open.toFixed(2) : 'N/A'}</div>`;
               tooltipContent += `<div>最高价: ${data.high !== undefined && data.high !== null ? data.high.toFixed(2) : 'N/A'}</div>`;
@@ -161,6 +167,26 @@ const PredictPage: React.FC = () => {
               tooltipContent += `<div>涨跌幅: ${data.pct_chg !== undefined && data.pct_chg !== null ? data.pct_chg.toFixed(2) : 'N/A'}%</div>`;
               tooltipContent += `<div>成交量: ${data.vol !== undefined && data.vol !== null ? data.vol.toFixed(2) : 'N/A'} </div>`;
               tooltipContent += `<div>成交额: ${data.amount !== undefined && data.amount !== null ? data.amount.toFixed(2) : 'N/A'} 千元</div>`;
+
+              // 技术指标
+              tooltipContent += `<div style="margin-top:5px; font-weight:bold">技术指标:</div>`;
+              tooltipContent += `<div>MA5 (5日均线): ${data.ma5 !== undefined && data.ma5 !== null ? data.ma5.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MA10 (10日均线): ${data.ma10 !== undefined && data.ma10 !== null ? data.ma10.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MA20 (20日均线): ${data.ma20 !== undefined && data.ma20 !== null ? data.ma20.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MA60 (60日均线): ${data.ma60 !== undefined && data.ma60 !== null ? data.ma60.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>EMA12 (12日指数移动平均线): ${data.ema12 !== undefined && data.ema12 !== null ? data.ema12.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>EMA26 (26日指数移动平均线): ${data.ema26 !== undefined && data.ema26 !== null ? data.ema26.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>RSI (相对强弱指数): ${data.rsi !== undefined && data.rsi !== null ? data.rsi.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>DIF (差离值): ${data.macd !== undefined && data.macd !== null ? data.macd.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>DEA (信号线): ${data.macd_signal !== undefined && data.macd_signal !== null ? data.macd_signal.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MACD Hist (MACD柱状图): ${data.macd_hist !== undefined && data.macd_hist !== null ? data.macd_hist.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>布林上轨 (布林带上限): ${data.boll_upper !== undefined && data.boll_upper !== null ? data.boll_upper.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>布林中轨 (20日均线): ${data.boll_mid !== undefined && data.boll_mid !== null ? data.boll_mid.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>布林下轨 (布林带下限): ${data.boll_lower !== undefined && data.boll_lower !== null ? data.boll_lower.toFixed(2) : 'N/A'}</div>`;
+
+
+              tooltipContent += `</div> <div>`;
+
               // 交易信号
               tooltipContent += `<div style="margin-top:5px; font-weight:bold">交易信号:</div>`;
               tooltipContent += `<div>买入信号: ${data.buy_signal ? '是' : '否'}</div>`;
@@ -183,29 +209,34 @@ const PredictPage: React.FC = () => {
               tooltipContent += `<div>预测买入点: ${data.buy_price !== undefined && data.buy_price > 0 ? data.buy_price.toFixed(2) : 'N/A'}</div>`;
               tooltipContent += `<div>预测卖出点: ${data.sell_price !== undefined && data.sell_price > 0 ? data.sell_price.toFixed(2) : 'N/A'}</div>`;
               tooltipContent += `<div>ATR (平均真实波幅): ${data.atr !== undefined && data.atr > 0 ? data.atr.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>连续下降天数: ${data.consecutive_down !== undefined && data.consecutive_down > 0 ? data.consecutive_down : '0'}</div>`;
-              
+              tooltipContent += `<div>连续下降天数: ${data.consecutive_down ?? '0'}</div>`;
+              tooltipContent += `<div>连续上涨天数: ${data.consecutive_up ?? '0'}</div>`;
+
               // 模型买入点标识
-              if (data.consecutive_down > 0 && data.pred_close > 0 && data.buy_price > 0) {
-                tooltipContent += `<div style="margin-top:5px; color:#1890ff; font-weight:bold">★ 模型买入点</div>`;
-                tooltipContent += `<div style="color:#1890ff">基于连续下降${data.consecutive_down}天预测</div>`;
+              if (data.consecutive_down > 2 && data.pred_close > 0 && data.buy_price > 0) {
+                tooltipContent += `<div style="margin-top:5px; color:#1890ff; font-weight:bold">建议买入</div>`;
               }
-              
-              // 技术指标
-              tooltipContent += `<div style="margin-top:5px; font-weight:bold">技术指标:</div>`;
-              tooltipContent += `<div>MA5 (5日均线): ${data.ma5 !== undefined && data.ma5 !== null ? data.ma5.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>MA10 (10日均线): ${data.ma10 !== undefined && data.ma10 !== null ? data.ma10.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>MA20 (20日均线): ${data.ma20 !== undefined && data.ma20 !== null ? data.ma20.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>MA60 (60日均线): ${data.ma60 !== undefined && data.ma60 !== null ? data.ma60.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>EMA12 (12日指数移动平均线): ${data.ema12 !== undefined && data.ema12 !== null ? data.ema12.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>EMA26 (26日指数移动平均线): ${data.ema26 !== undefined && data.ema26 !== null ? data.ema26.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>RSI (相对强弱指数): ${data.rsi !== undefined && data.rsi !== null ? data.rsi.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>DIF (差离值): ${data.macd !== undefined && data.macd !== null ? data.macd.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>DEA (信号线): ${data.macd_signal !== undefined && data.macd_signal !== null ? data.macd_signal.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>MACD Hist (MACD柱状图): ${data.macd_hist !== undefined && data.macd_hist !== null ? data.macd_hist.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>布林上轨 (布林带上限): ${data.boll_upper !== undefined && data.boll_upper !== null ? data.boll_upper.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>布林中轨 (20日均线): ${data.boll_mid !== undefined && data.boll_mid !== null ? data.boll_mid.toFixed(2) : 'N/A'}</div>`;
-              tooltipContent += `<div>布林下轨 (布林带下限): ${data.boll_lower !== undefined && data.boll_lower !== null ? data.boll_lower.toFixed(2) : 'N/A'}</div>`;
+
+              // 模型卖出点
+              if (data.consecutive_up > 2 && data.pred_close > 0 && data.sell_price > 0) {
+                tooltipContent += `<div style="margin-top:5px; color:#ff4d4f; font-weight:bold">建议卖出</div>`;
+              }
+
+              // pred_golden_cross 是pred_death_cross 的3倍及以上须卖出
+              if (data.pred_golden_cross_proba > 0 && data.pred_death_cross_proba > 0 && (data.pred_golden_cross_proba / data.pred_death_cross_proba > 3)) {
+                if (data.pred_golden_cross_proba * 100 > 50) {
+                  tooltipContent += `<div style="margin-top:5px; color:#1890ff; font-weight:bold">★倍数增强需买入</div>`;
+                }else{
+                tooltipContent += `<div style="margin-top:5px; color:#ff4d4f; font-weight:bold">★倍数增强需卖出</div>`;
+                }
+              }
+
+              // pred_death_cross 是pred_golden_cross 的3倍及以上须买入
+              if (data.pred_death_cross_proba > 0 && data.pred_golden_cross_proba > 0 && (data.pred_death_cross_proba / data.pred_golden_cross_proba > 3)) {
+                tooltipContent += `<div style="margin-top:5px; color:#1890ff; font-weight:bold">★倍数增强需买入</div>`;
+              }
+
+              tooltipContent += `</div> </div>`;
               return tooltipContent;
             }
           },
@@ -429,13 +460,410 @@ const PredictPage: React.FC = () => {
           ]
         }
 
-      // 设置配置项
-      chartInstance.current.setOption(option)
+        // 设置配置项
+        chartInstance.current.setOption(option)
+      }
+
+      // 初始化LightGBM图表
+      if (lightgbmChartRef.current) {
+        if (!lightgbmChartInstance.current) {
+          lightgbmChartInstance.current = echarts.init(lightgbmChartRef.current)
+        }
+
+        // 准备数据
+        const dates = stockData.map(item => item.date)
+        const closePrices = stockData.map(item => item.close)
+        const volumes = stockData.map(item => item.volume)
+
+        // 准备买入点和卖出点数据
+        const buyPoints = [];
+        const sellPoints = [];
+        const predBuyPoints = [];
+        const predSellPoints = [];
+        const modelBuyPoints = [];  // 基于模型预测的买入点
+        const predGoldenCrossPoints = [];
+        const predDeathCrossPoints = [];
+        const actualGoldenCrossPoints = [];
+        const actualDeathCrossPoints = [];
+
+        for (let i = 0; i < stockData.length; i++) {
+          const item = stockData[i];
+          if (item.buy_signal && item.buy_price > 0) {
+            buyPoints.push([i, item.buy_price]);
+          }
+          if (item.sell_signal && item.sell_price > 0) {
+            sellPoints.push([i, item.sell_price]);
+          }
+          // 预测买入点和卖出点（基于t-1数据预测）
+          if (item.buy_price > 0) {
+            predBuyPoints.push([i, item.buy_price]);
+            // 区分基于模型的买入点：连续下降天数>0且预测收盘价>0
+            if (item.consecutive_down > 0 && item.pred_close > 0) {
+              modelBuyPoints.push([i, item.buy_price]);
+            }
+          }
+          if (item.sell_price > 0) {
+            predSellPoints.push([i, item.sell_price]);
+          }
+          if (item.pred_golden_cross) {
+            predGoldenCrossPoints.push([i, item.close]);
+          }
+          if (item.pred_death_cross) {
+            predDeathCrossPoints.push([i, item.close]);
+          }
+          if (item.golden_cross === 1) {
+            actualGoldenCrossPoints.push([i, item.close]);
+          }
+          if (item.death_cross === 1) {
+            actualDeathCrossPoints.push([i, item.close]);
+          }
+        }
+
+        // 配置项
+        const option = {
+          tooltip: {
+            trigger: 'axis',
+            width: 500,
+            axisPointer: {
+              type: 'cross',
+              label: {
+                backgroundColor: '#6a7985'
+              }
+            },
+            formatter: (params: any) => {
+              const dataIndex = params[0].dataIndex;
+              const data = stockData[dataIndex];
+              console.log();
+              let tooltipContent = `<div style="width: 500px;display: flex;flex-direction: row;"><div>`;
+              tooltipContent += `<div style="font-weight:bold;margin-bottom:5px">${data.date}</div>`;
+              tooltipContent += `<div>股票代码: ${data.ts_code}</div>`;
+              tooltipContent += `<div>开盘价: ${data.open !== undefined && data.open !== null ? data.open.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>最高价: ${data.high !== undefined && data.high !== null ? data.high.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>最低价: ${data.low !== undefined && data.low !== null ? data.low.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>收盘价: ${data.close.toFixed(2)}</div>`;
+              tooltipContent += `<div>昨收价: ${data.pre_close !== undefined && data.pre_close !== null ? data.pre_close.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>涨跌额: ${data.change !== undefined && data.change !== null ? data.change.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>涨跌幅: ${data.pct_chg !== undefined && data.pct_chg !== null ? data.pct_chg.toFixed(2) : 'N/A'}%</div>`;
+              tooltipContent += `<div>成交量: ${data.vol !== undefined && data.vol !== null ? data.vol.toFixed(2) : 'N/A'} </div>`;
+              tooltipContent += `<div>成交额: ${data.amount !== undefined && data.amount !== null ? data.amount.toFixed(2) : 'N/A'} 千元</div>`;
+
+              // 技术指标
+              tooltipContent += `<div style="margin-top:5px; font-weight:bold">技术指标:</div>`;
+              tooltipContent += `<div>MA5 (5日均线): ${data.ma5 !== undefined && data.ma5 !== null ? data.ma5.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MA10 (10日均线): ${data.ma10 !== undefined && data.ma10 !== null ? data.ma10.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MA20 (20日均线): ${data.ma20 !== undefined && data.ma20 !== null ? data.ma20.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MA60 (60日均线): ${data.ma60 !== undefined && data.ma60 !== null ? data.ma60.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>EMA12 (12日指数移动平均线): ${data.ema12 !== undefined && data.ema12 !== null ? data.ema12.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>EMA26 (26日指数移动平均线): ${data.ema26 !== undefined && data.ema26 !== null ? data.ema26.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>RSI (相对强弱指数): ${data.rsi !== undefined && data.rsi !== null ? data.rsi.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>DIF (差离值): ${data.macd !== undefined && data.macd !== null ? data.macd.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>DEA (信号线): ${data.macd_signal !== undefined && data.macd_signal !== null ? data.macd_signal.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>MACD Hist (MACD柱状图): ${data.macd_hist !== undefined && data.macd_hist !== null ? data.macd_hist.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>布林上轨 (布林带上限): ${data.boll_upper !== undefined && data.boll_upper !== null ? data.boll_upper.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>布林中轨 (20日均线): ${data.boll_mid !== undefined && data.boll_mid !== null ? data.boll_mid.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>布林下轨 (布林带下限): ${data.boll_lower !== undefined && data.boll_lower !== null ? data.boll_lower.toFixed(2) : 'N/A'}</div>`;
+
+
+              tooltipContent += `</div> <div>`;
+
+              // 交易信号
+              tooltipContent += `<div style="margin-top:5px; font-weight:bold">交易信号:</div>`;
+              tooltipContent += `<div>买入信号: ${data.buy_signal ? '是' : '否'}</div>`;
+              tooltipContent += `<div>卖出信号: ${data.sell_signal ? '是' : '否'}</div>`;
+              if (data.buy_signal && data.buy_price > 0) {
+                tooltipContent += `<div>买入价格: ${data.buy_price.toFixed(2)}</div>`;
+              }
+              if (data.sell_signal && data.sell_price > 0) {
+                tooltipContent += `<div>卖出价格: ${data.sell_price.toFixed(2)}</div>`;
+              }
+              // 金叉和死叉信息
+              tooltipContent += `<div style="margin-top:5px; font-weight:bold">金叉/死叉:</div>`;
+              tooltipContent += `<div>预测金叉: ${data.pred_golden_cross ? '是' : '否'} (${(data.pred_golden_cross_proba * 100).toFixed(2)}%)</div>`;
+              tooltipContent += `<div>预测死叉: ${data.pred_death_cross ? '是' : '否'} (${(data.pred_death_cross_proba * 100).toFixed(2)}%)</div>`;
+              tooltipContent += `<div>实际金叉: ${data.golden_cross === 1 ? '是' : '否'}</div>`;
+              tooltipContent += `<div>实际死叉: ${data.death_cross === 1 ? '是' : '否'}</div>`;
+              // 预测价格和买卖点
+              tooltipContent += `<div style="margin-top:5px; font-weight:bold">预测买卖点 (基于t-1数据):</div>`;
+              tooltipContent += `<div>预测收盘价: ${data.pred_close !== undefined && data.pred_close > 0 ? data.pred_close.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>预测买入点: ${data.buy_price !== undefined && data.buy_price > 0 ? data.buy_price.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>预测卖出点: ${data.sell_price !== undefined && data.sell_price > 0 ? data.sell_price.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>ATR (平均真实波幅): ${data.atr !== undefined && data.atr > 0 ? data.atr.toFixed(2) : 'N/A'}</div>`;
+              tooltipContent += `<div>连续下降天数: ${data.consecutive_down ?? '0'}</div>`;
+              tooltipContent += `<div>连续上涨天数: ${data.consecutive_up ?? '0'}</div>`;
+
+              // 回测买卖逻辑
+              const up_prob = data.buy_probability || 0;
+              const consecutive_down = data.consecutive_down || 0;
+              const rsi = data.rsi || 50;
+              const volume_ratio = 1.0; // 假设量比为1.0
+
+              // 回测参数
+              const buy_threshold = 0.55;
+              const sell_threshold = 0.45;
+              const rsi_threshold = 40;
+              const volume_ratio_threshold = 1.2;
+              const max_consecutive_down = 7;
+
+              // 买入条件
+              const buy_condition = (
+                (consecutive_down <= max_consecutive_down) &&
+                (up_prob > buy_threshold) &&
+                (
+                  (rsi < rsi_threshold) ||
+                  (volume_ratio > volume_ratio_threshold) ||
+                  (consecutive_down >= 2)
+                )
+              );
+
+              // 卖出条件
+              const sell_condition = (
+                (up_prob < sell_threshold) ||
+                (consecutive_down > max_consecutive_down)
+              );
+
+              if (buy_condition && data.pred_close > 0 && data.buy_price > 0) {
+                tooltipContent += `<div style="margin-top:5px; color:#1890ff; font-weight:bold">建议买入</div>`;
+                tooltipContent += `<div style="color:#1890ff">概率: ${(up_prob * 100).toFixed(2)}%, 连跌: ${consecutive_down}天, RSI: ${rsi.toFixed(1)}</div>`;
+              }
+
+              if (sell_condition && data.pred_close > 0 && data.sell_price > 0) {
+                tooltipContent += `<div style="margin-top:5px; color:#ff4d4f; font-weight:bold">建议卖出</div>`;
+                tooltipContent += `<div style="color:#ff4d4f">概率: ${(up_prob * 100).toFixed(2)}%, 连跌: ${consecutive_down}天</div>`;
+              }
+
+              tooltipContent += `</div> </div>`;
+              return tooltipContent;
+            }
+          },
+          legend: {
+            data: ['收盘价', '交易量', '买入点', '卖出点', '预测买入点', '模型买入点', '预测卖出点', '预测金叉', '预测死叉', '实际金叉', '实际死叉']
+          },
+          grid: {
+            left: '3%',
+            right: '4%',
+            bottom: '3%',
+            containLabel: true
+          },
+          xAxis: {
+            type: 'category',
+            boundaryGap: false,
+            data: dates
+          },
+          yAxis: [
+            {
+              type: 'value',
+              name: '单价',
+              position: 'left',
+              axisLabel: {
+                formatter: '{value}'
+              }
+            },
+            {
+              type: 'value',
+              name: '交易量',
+              position: 'right',
+              axisLabel: {
+                formatter: '{value}'
+              }
+            }
+          ],
+          series: [
+            {
+              name: '收盘价',
+              type: 'line',
+              data: closePrices,
+              yAxisIndex: 0,
+              itemStyle: {
+                color: '#8884d8'
+              }
+            },
+            {
+              name: '交易量',
+              type: 'line',
+              data: volumes,
+              yAxisIndex: 1,
+              itemStyle: {
+                color: '#82ca9d'
+              }
+            },
+            {
+              name: '买入点',
+              type: 'scatter',
+              data: buyPoints,
+              yAxisIndex: 0,
+              symbolSize: 8,
+              itemStyle: {
+                color: '#52c41a'
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '卖出点',
+              type: 'scatter',
+              data: sellPoints,
+              yAxisIndex: 0,
+              symbolSize: 8,
+              itemStyle: {
+                color: '#ff4d4f'
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '预测金叉',
+              type: 'scatter',
+              data: predGoldenCrossPoints,
+              yAxisIndex: 0,
+              symbol: 'triangle',
+              symbolSize: 10,
+              itemStyle: {
+                color: '#1890ff',
+                borderColor: '#fff',
+                borderWidth: 2
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '预测死叉',
+              type: 'scatter',
+              data: predDeathCrossPoints,
+              yAxisIndex: 0,
+              symbol: 'triangle',
+              symbolSize: 10,
+              symbolRotate: 180,
+              itemStyle: {
+                color: '#faad14',
+                borderColor: '#fff',
+                borderWidth: 2
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '实际金叉',
+              type: 'scatter',
+              data: actualGoldenCrossPoints,
+              yAxisIndex: 0,
+              symbol: 'circle',
+              symbolSize: 8,
+              itemStyle: {
+                color: '#52c41a',
+                borderColor: '#fff',
+                borderWidth: 2
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '实际死叉',
+              type: 'scatter',
+              data: actualDeathCrossPoints,
+              yAxisIndex: 0,
+              symbol: 'circle',
+              symbolSize: 8,
+              itemStyle: {
+                color: '#ff4d4f',
+                borderColor: '#fff',
+                borderWidth: 2
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '预测买入点',
+              type: 'scatter',
+              data: predBuyPoints,
+              yAxisIndex: 0,
+              symbol: 'circle',
+              symbolSize: 6,
+              itemStyle: {
+                color: '#52c41a',
+                borderColor: '#fff',
+                borderWidth: 1
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '模型买入点',
+              type: 'scatter',
+              data: modelBuyPoints,
+              yAxisIndex: 0,
+              symbol: 'diamond',
+              symbolSize: 10,
+              itemStyle: {
+                color: '#1890ff',
+                borderColor: '#fff',
+                borderWidth: 2
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            },
+            {
+              name: '预测卖出点',
+              type: 'scatter',
+              data: predSellPoints,
+              yAxisIndex: 0,
+              symbol: 'circle',
+              symbolSize: 6,
+              itemStyle: {
+                color: '#ff4d4f',
+                borderColor: '#fff',
+                borderWidth: 1
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+              }
+            }
+          ]
+        }
+
+        // 设置配置项
+        lightgbmChartInstance.current.setOption(option)
+      }
     }
 
     // 响应式调整
     const handleResize = () => {
       chartInstance.current?.resize()
+      lightgbmChartInstance.current?.resize()
     }
 
     window.addEventListener('resize', handleResize)
@@ -444,6 +872,10 @@ const PredictPage: React.FC = () => {
       if (chartInstance.current) {
         chartInstance.current.dispose()
         chartInstance.current = null
+      }
+      if (lightgbmChartInstance.current) {
+        lightgbmChartInstance.current.dispose()
+        lightgbmChartInstance.current = null
       }
     }
   }, [stockData])
@@ -528,7 +960,12 @@ const PredictPage: React.FC = () => {
           pred_golden_cross: item.pred_golden_cross,
           pred_golden_cross_proba: item.pred_golden_cross_proba,
           pred_death_cross: item.pred_death_cross,
-          pred_death_cross_proba: item.pred_death_cross_proba
+          pred_death_cross_proba: item.pred_death_cross_proba,
+          consecutive_close_down: item.consecutive_close_down,
+          consecutive_down: item.consecutive_down,
+          consecutive_up: item.consecutive_up,
+          pred_close: item.pred_close
+
         }))
         setStockData(data)
       }
@@ -611,10 +1048,10 @@ const PredictPage: React.FC = () => {
             pagination={false}
             style={{ marginBottom: 24 }}
           />
-          
+
           {/* div flex 布局 */}
-          <div style={{ display: 'flex', flexDirection: 'row',justifyContent: 'center',alignContent: 'center',gap: 24 }}>
-            <div style={{flex:1}}>
+          <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'center', alignContent: 'center', gap: 24 }}>
+            <div style={{ flex: 1 }}>
 
 
               {/* XGBoost 预测结果 */}
@@ -639,7 +1076,7 @@ const PredictPage: React.FC = () => {
               />
 
             </div>
-            <div style={{flex:1}}>
+            <div style={{ flex: 1 }}>
               {/* LightGBM 预测结果 */}
               <Title level={3}>LightGBM 预测结果</Title>
               <Table
@@ -685,9 +1122,13 @@ const PredictPage: React.FC = () => {
             </>
           )}
 
-          {/* 股价走势与交易量 */}
-          <Title level={3}>股价走势与交易量</Title>
+          {/* 股价走势与交易量 xgboost */}
+          <Title level={3}>股价走势与交易量 xgboost</Title>
           <div ref={chartRef} style={{ height: 500, marginBottom: 24 }} />
+
+          {/* 股价走势与交易量 lightgbm */}
+          <Title level={3}>股价走势与交易量 lightgbm</Title>
+          <div ref={lightgbmChartRef} style={{ height: 500, marginBottom: 24 }} />
 
 
         </>

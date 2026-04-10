@@ -229,10 +229,31 @@ def predict():
             golden_model = trainer.load_model(f"{model_type}_golden_cross_model")
             if golden_model is not None:
                 print("使用模型为历史数据生成交易信号...")
+                
+                # 首先为整个df计算特征（包括连续下降天数等）
+                df_features_full, feature_cols_full = trainer.create_features(df)
+                if len(df_features_full) > 0:
+                    # 将连续下降天数等特征合并回原始df
+                    if 'consecutive_down' in df_features_full.columns:
+                        df.loc[df_features_full.index, 'consecutive_down'] = df_features_full['consecutive_down']
+                    if 'consecutive_up' in df_features_full.columns:
+                        df.loc[df_features_full.index, 'consecutive_up'] = df_features_full['consecutive_up']
+                    if 'vol/Vol_MA5' in df_features_full.columns:
+                        df.loc[df_features_full.index, 'vol/Vol_MA5'] = df_features_full['vol/Vol_MA5']
+                    if 'rsi' in df_features_full.columns:
+                        df.loc[df_features_full.index, 'rsi'] = df_features_full['rsi']
+
+                
                 # 为每一行生成信号
                 for i in range(len(df)):
                     try:
-                        # 创建特征
+                        # 获取当前行在df_features_full中的索引
+                        if i >= len(df_features_full):
+                            continue
+                            
+                        current_idx = df_features_full.index[i]
+                        
+                        # 创建特征（用于模型预测）
                         df_features, feature_cols = trainer.create_features(df.iloc[:i+1])
                         if len(df_features) > 0:
                             # 只使用模型训练时使用的特征
@@ -245,11 +266,11 @@ def predict():
                                 buy_probability = y_prob[1]  # 正类（金叉/上涨）概率
                                 sell_probability = 1 - buy_probability  # 负类概率
                                 
-                                # 获取当前数据的连续下降天数和其他指标
-                                current_row = df.iloc[i]
-                                consecutive_down = current_row.get('consecutive_down', 0)
-                                rsi = current_row.get('rsi', 50)
-                                volume_ratio = current_row.get('vol/Vol_MA5', 1.0) if 'vol/Vol_MA5' in current_row else current_row.get('vol_ratio', 1.0)
+                                # 获取当前数据的连续下降天数和其他指标（从预先计算的df_features_full中获取）
+                                # 这样确保使用的是基于t-1之前数据统计的连续下降天数
+                                consecutive_down = df_features_full.loc[current_idx, 'consecutive_down'] if 'consecutive_down' in df_features_full.columns else 0
+                                rsi = df_features_full.loc[current_idx, 'rsi'] if 'rsi' in df_features_full.columns else 50
+                                volume_ratio = df_features_full.loc[current_idx, 'vol/Vol_MA5'] if 'vol/Vol_MA5' in df_features_full.columns else 1.0
                                 
                                 # 应用实战应用建议的买入规则
                                 buy_signal = False
@@ -265,8 +286,14 @@ def predict():
                                 df.loc[df.index[i], 'sell_signal'] = 1.0 if sell_signal else 0.0
                                 df.loc[df.index[i], 'buy_probability'] = buy_probability
                                 df.loc[df.index[i], 'sell_probability'] = sell_probability
+                                
+                                # 调试输出
+                                # if i % 10 == 0 or consecutive_down > 0:  # 每10行或连续下降天数>0时输出调试信息
+                                    # print(f"DEBUG 第{i}行 (日期{df.iloc[i]['date']}): consecutive_down={consecutive_down}, rsi={rsi:.2f}, volume_ratio={volume_ratio:.2f}, buy_prob={buy_probability:.2f}, buy_signal={buy_signal}")
                     except Exception as e:
-                        print(f"为历史数据生成交易信号时出错: {e}")
+                        print(f"为历史数据生成交易信号时出错 (第{i}行): {e}")
+                        import traceback
+                        traceback.print_exc()
                         continue
             else:
                 print("未找到模型，使用金叉死叉规则生成交易信号")
@@ -297,22 +324,8 @@ def predict():
             df['buy_probability'] = 0.0
             df['sell_probability'] = 0.0
         
-        # 获取基本面数据
-        try:
-            # 获取财务数据
-            fin_data = pro.fina_indicator(ts_code=ts_code, period='20251231', fields='pe, pb, roe, npg_rate, debt_to_assets')
-            fundamentals = {}
-            if not fin_data.empty:
-                fundamentals = {
-                    'pe': float(fin_data['pe'].iloc[0]) if 'pe' in fin_data.columns and not pd.isna(fin_data['pe'].iloc[0]) else None,
-                    'pb': float(fin_data['pb'].iloc[0]) if 'pb' in fin_data.columns and not pd.isna(fin_data['pb'].iloc[0]) else None,
-                    'roe': float(fin_data['roe'].iloc[0]) if 'roe' in fin_data.columns and not pd.isna(fin_data['roe'].iloc[0]) else None,
-                    'npg_rate': float(fin_data['npg_rate'].iloc[0]) if 'npg_rate' in fin_data.columns and not pd.isna(fin_data['npg_rate'].iloc[0]) else None,
-                    'debt_to_assets': float(fin_data['debt_to_assets'].iloc[0]) if 'debt_to_assets' in fin_data.columns and not pd.isna(fin_data['debt_to_assets'].iloc[0]) else None
-                }
-        except Exception as e:
-            print(f"获取基本面数据失败: {e}")
-            fundamentals = {}
+        # 基本面数据功能已删除（需要Tushare 2000积分以上权限）
+        fundamentals = {}
         
         # 准备历史数据（最近90天）
         history_data = []
@@ -357,6 +370,7 @@ def predict():
                     'sell_price': float(row['sell_price']) if 'sell_price' in row and not pd.isna(row['sell_price']) else 0,
                     'pred_close': float(row['pred_close']) if 'pred_close' in row and not pd.isna(row['pred_close']) else 0,
                     'consecutive_down': int(row['consecutive_down']) if 'consecutive_down' in row else 0,
+                    'consecutive_up': int(row['consecutive_up']) if 'consecutive_up' in row else 0,
                     'pred_golden_cross': bool(float(row['pred_golden_cross'])) if 'pred_golden_cross' in row else False,
                     'pred_golden_cross_proba': float(row['pred_golden_cross_proba']) if 'pred_golden_cross_proba' in row else 0.0,
                     'pred_death_cross': bool(float(row['pred_death_cross'])) if 'pred_death_cross' in row else False,

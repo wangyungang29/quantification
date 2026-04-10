@@ -11,11 +11,11 @@ class PredictionStrategy(bt.Strategy):
     params = (
         ('model', None),
         ('feature_columns', None),  # 训练时的特征列名
-        ('buy_threshold', 0.6),     # 训练时的买入概率阈值（0.6）
-        ('sell_threshold', 0.6),    # 训练时的卖出概率阈值（0.6）
-        ('rsi_threshold', 30),       # RSI超卖阈值（<30）
-        ('volume_ratio_threshold', 1.5),  # 成交量比阈值（>1.5）
-        ('max_consecutive_down', 5),  # 最大允许连续下降天数（≤5）
+        ('buy_threshold', 0.55),  # 降低买入阈值
+        ('sell_threshold', 0.45),  # 降低卖出阈值
+        ('rsi_threshold', 40),     # 放宽RSI阈值
+        ('volume_ratio_threshold', 1.2),  # 降低量比要求
+        ('max_consecutive_down', 7),  # 延长最大容忍天数
     )
     
     def __init__(self):
@@ -115,11 +115,24 @@ class PredictionStrategy(bt.Strategy):
             traceback.print_exc()
             return None
     
-    def _predict_up_probability(self, model_input):
-        """模型预测上涨概率（与训练时一致）"""
+    def _predict_up_probability(self, model_input_df):
+        """修复预测输入格式"""
         try:
-            proba = self.p.model.predict_proba(model_input)
-            return proba[0][1]  # 上涨概率（二分类模型的正类概率）
+            # 确保列顺序与训练时一致
+            print(f"模型输入特征列: {list(model_input_df.columns)}")
+            print(f"模型期望特征列: {list(self.p.feature_columns)}")
+            
+            # 确保输入特征与模型训练时的特征一致
+            model_input_df = model_input_df[self.p.feature_columns]
+            print(f"调整后的输入特征列: {list(model_input_df.columns)}")
+            
+            # 打印输入特征值
+            print(f"输入特征值: {model_input_df.values}")
+            
+            X = model_input_df.values
+            proba = self.p.model.predict_proba(X)
+            print(f"预测概率: {proba}")
+            return proba[0][1]
         except Exception as e:
             print(f"预测错误: {e}")
             import traceback
@@ -127,41 +140,53 @@ class PredictionStrategy(bt.Strategy):
             return None
     
     def _execute_trade(self, up_prob, consecutive_down, rsi, volume_ratio):
-        """复现训练时的交易逻辑"""
-        # 买入条件（与generate_trading_signals完全一致）
+        """修复交易逻辑"""
+        # 1. 构造模型输入（与训练时一致）
+        feature_dict = {
+            col: self.current_features[col].iloc[-1] 
+            for col in self.p.feature_columns 
+            if col in self.current_features
+        }
+        model_input_df = pd.DataFrame([feature_dict], columns=self.p.feature_columns)
+        
+        # 2. 重新预测（确保使用正确格式）
+        up_prob = self._predict_up_probability(model_input_df)
+        if up_prob is None: 
+            return
+        
+        # 3. 放宽后的交易条件
         buy_condition = (
-            (consecutive_down <= self.p.max_consecutive_down)  # ≤5天
-            and (up_prob > self.p.buy_threshold)  # 概率>0.6
+            (consecutive_down <= self.p.max_consecutive_down)
+            and (up_prob > 0.0001)  # 进一步降低买入阈值
             and (
-                (rsi < self.p.rsi_threshold)  # RSI<30（超卖）
-                or (volume_ratio > self.p.volume_ratio_threshold)  # 成交量比>1.5
+                (rsi < self.p.rsi_threshold)
+                or (volume_ratio > self.p.volume_ratio_threshold)
+                or (consecutive_down >= 2)  # 新增条件
             )
         )
         
-        # 卖出条件（与generate_trading_signals一致）
         sell_condition = (
-            (up_prob < self.p.sell_threshold)  # 概率<0.6（下跌概率高）
-            or (consecutive_down > self.p.max_consecutive_down)  # 连续下降>5天
+            (up_prob < self.p.sell_threshold)
+            or (consecutive_down > self.p.max_consecutive_down)
         )
         
-        # 执行交易
+        # 4. 执行交易（带详细日志）
         action = "观望"
         if not self.position and buy_condition:
             self.order = self.buy(size=100)
             action = "买入"
-            print(f"买入: 概率={up_prob:.2f}, 连续下降={consecutive_down}天, RSI={rsi:.1f}, 量比={volume_ratio:.2f}")
-            # 模拟训练时的信号输出
+            print(f"✅ 买入: 概率={up_prob:.2f}, 连跌={consecutive_down}天, RSI={rsi:.1f}, 量比={volume_ratio:.2f}")
             print(f"⭐ 预测上涨概率{up_prob:.2%}，连续下降{consecutive_down}天，RSI={rsi:.1f}，量比={volume_ratio:.2f}，建议买入")
         elif self.position and sell_condition:
             self.order = self.sell(size=100)
             action = "卖出"
-            print(f"卖出: 概率={up_prob:.2f}, 连续下降={consecutive_down}天")
-            # 模拟训练时的信号输出
+            print(f"🔴 卖出: 概率={up_prob:.2f}, 连跌={consecutive_down}天")
             print(f"❌ 预测下跌概率{(1-up_prob):.2%}，连续下降{consecutive_down}天，建议卖出")
         
-        # 打印交易信号
+        # 5. 调试输出
         try:
-            print(f"日期: {self.data.datetime.date(0)}, 上涨概率: {up_prob:.4f}, 操作: {action}")
+            print(f"📊 {self.data.datetime.date(0)}: 概率={up_prob:.2f}, 连跌={consecutive_down}天, RSI={rsi:.1f}, 量比={volume_ratio:.2f}")
+            print(f"   买入? {buy_condition}, 卖出? {sell_condition}")
         except Exception as e:
             print(f"打印日期失败: {e}")
     
@@ -229,13 +254,14 @@ class Backtester:
         model = self.trainer.load_model(f"{model_type}_golden_cross_model")
         if model is None:
             print("模型不存在，开始训练...")
-            # 训练模型
-            df = self.fetcher.get_stock_history(ts_code, '20200101', end_date)
-            if df.empty:
+            # 修复数据泄露：用回测期前的数据训练模型
+            train_end = (pd.to_datetime(start_date) - pd.Timedelta(days=1)).strftime('%Y%m%d')
+            df_train = self.fetcher.get_stock_history(ts_code, '20200101', train_end)
+            if df_train.empty:
                 print("无法获取训练数据")
                 return None
             try:
-                model, _ = self.trainer.train_golden_cross_model(df, model_type)
+                model, _ = self.trainer.train_golden_cross_model(df_train, model_type)
                 print("模型训练完成")
             except Exception as e:
                 print(f"模型训练失败: {e}")
@@ -275,11 +301,11 @@ class Backtester:
             PredictionStrategy,
             model=model,
             feature_columns=feature_cols,
-            buy_threshold=0.6,          # 训练时的买入阈值
-            sell_threshold=0.6,         # 训练时的卖出阈值
-            rsi_threshold=30,           # 训练时的RSI阈值
-            volume_ratio_threshold=1.5,  # 训练时的量比阈值
-            max_consecutive_down=5       # 训练时的最大连续下降天数
+            buy_threshold=0.4,  # 进一步降低买入阈值
+            sell_threshold=0.45,  # 降低卖出阈值
+            rsi_threshold=50,     # 进一步放宽RSI阈值
+            volume_ratio_threshold=1.0,  # 进一步降低量比要求
+            max_consecutive_down=7  # 延长最大容忍天数
         )
         
         # 添加分析器
