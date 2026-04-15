@@ -23,6 +23,7 @@ class PredictionStrategy(bt.Strategy):
         self.order = None
         self.trainer = ModelTrainer()  # 用于特征计算
         self.current_features = None  # 存储当前特征（含辅助指标）
+        self.trades = []  # 记录交易历史
     
     def next(self):
         # 检查是否有未完成的订单
@@ -197,6 +198,23 @@ class PredictionStrategy(bt.Strategy):
         if order.status in [order.Completed]:
             action = "买入" if order.isbuy() else "卖出"
             print(f"{action}: 价格={order.executed.price:.2f}, 数量={order.executed.size}")
+            
+            # 记录交易信息
+            try:
+                date = self.data.datetime.date(0)
+                trade_info = {
+                    'date': date.strftime('%Y-%m-%d'),
+                    'action': action,
+                    'price': round(order.executed.price, 2),
+                    'shares': order.executed.size,
+                    'amount': round(order.executed.price * order.executed.size, 2),
+                    'commission': round(order.executed.comm, 2),
+                    'total': round(order.executed.price * order.executed.size + order.executed.comm, 2)
+                }
+                self.trades.append(trade_info)
+                print(f"交易记录: {trade_info}")
+            except Exception as e:
+                print(f"记录交易信息失败: {e}")
         
         self.order = None
 
@@ -354,6 +372,16 @@ class Backtester:
         if average_return is None:
             average_return = 0
         
+        # 获取交易记录
+        trades = []
+        if results:
+            strat = results[0]
+            if hasattr(strat, 'trades'):
+                trades = strat.trades
+                print(f"交易记录数量: {len(trades)}")
+                for trade in trades:
+                    print(trade)
+        
         backtest_results = {
             'initial_capital': INITIAL_CAPITAL,
             'final_value': cerebro.broker.getvalue(),
@@ -362,7 +390,8 @@ class Backtester:
             'max_drawdown': max_drawdown,
             'average_return': average_return,
             'total_trades': total_trades,
-            'win_rate': win_rate
+            'win_rate': win_rate,
+            'trades': trades
         }
         
         # 打印回测结果

@@ -1,0 +1,35 @@
+import requests
+import json
+
+# 测试高收益策略回测API
+url = 'http://localhost:5001/api/backtest_500pct'
+data = {
+    'ts_code': '000564.SZ',
+    'model_type': 'xgboost'
+}
+
+try:
+    print("发送请求到高收益策略回测API...")
+    response = requests.post(url, json=data, timeout=300)
+    print(f"状态码: {response.status_code}")
+    
+    if response.status_code == 200:
+        result = response.json()
+        print("回测成功！")
+        print(f"总收益率: {result.get('total_return', 0):.2%}")
+        print(f"最大回撤: {result.get('max_drawdown', 0):.2%}")
+        print(f"是否达到500%目标: {result.get('achieved_500pct', False)}")
+        print(f"交易次数: {len(result.get('signals', []))}")
+        print(f"完整交易次数: {result.get('total_trades', 0)}")
+        print(f"胜率: {result.get('win_rate', 0):.2%}")
+        print(f"平均收益率: {result.get('average_return', 0):.2%}")
+        
+        # 打印前几个交易信号
+        signals = result.get('signals', [])
+        print(f"\n前5个交易信号:")
+        for i, signal in enumerate(signals[:5]):
+            print(f"信号{i+1}: {signal}")
+    else:
+        print(f"请求失败: {response.text}")
+except Exception as e:
+    print(f"发生错误: {e}")

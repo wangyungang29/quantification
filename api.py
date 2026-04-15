@@ -190,6 +190,11 @@ def predict():
         df['buy_probability'] = 0.0
         df['sell_probability'] = 0.0
         
+        # 高收益策略信号
+        df['high_return_action'] = "HOLD"
+        df['high_return_position'] = 0.0
+        df['super_trend_prob'] = 0.0
+        
         # 使用模型预测金叉和死叉（必须在构建history_data之前调用）
         try:
             from src.models.model_trainer import ModelTrainer
@@ -199,6 +204,7 @@ def predict():
             golden_model_path = f"src/models/saved/{model_type}_golden_cross_model.joblib"
             death_model_path = f"src/models/saved/{model_type}_death_cross_model.joblib"
             price_model_path = f"src/models/saved/{model_type}_price_prediction_model.joblib"
+            high_return_model_path = f"src/models/saved/{model_type}_500pct_model.joblib"
             
             import os
             if not os.path.exists(golden_model_path) or not os.path.exists(death_model_path):
@@ -216,6 +222,15 @@ def predict():
                 except Exception as e:
                     print(f"模型训练失败: {e}")
             
+            # 训练高收益模型
+            if not os.path.exists(high_return_model_path):
+                print(f"未找到高收益模型，开始训练...")
+                try:
+                    trainer.train_and_evaluate_500pct(df, model_type=model_type)
+                    print('高收益模型训练完成')
+                except Exception as e:
+                    print(f"高收益模型训练失败: {e}")
+            
             # 预测金叉和死叉
             df = trainer.predict_golden_death_cross(df, model_type=model_type, threshold=0.5)
             print(f"成功预测金叉和死叉")
@@ -223,6 +238,18 @@ def predict():
             # 预测t-1的买卖点
             df = trainer.predict_buy_sell_points(df, model_type=model_type, atr_multiplier=1.0)
             print(f"成功预测买卖点")
+            
+            # 生成高收益策略信号
+            try:
+                high_return_model = trainer.load_model(f"{model_type}_500pct_model")
+                if high_return_model is not None:
+                    high_return_signal = trainer.generate_500pct_signal(high_return_model, df)
+                    df.loc[df.index[-1], 'high_return_action'] = high_return_signal['action']
+                    df.loc[df.index[-1], 'high_return_position'] = high_return_signal['position']
+                    df.loc[df.index[-1], 'super_trend_prob'] = high_return_signal['super_trend_prob']
+                    print(f"高收益策略信号: {high_return_signal['action']}")
+            except Exception as e:
+                print(f"生成高收益策略信号失败: {e}")
             
             # 为历史数据生成模型交易信号
             # 加载金叉预测模型用于生成信号
@@ -323,6 +350,9 @@ def predict():
             df['sell_price'] = 0.0
             df['buy_probability'] = 0.0
             df['sell_probability'] = 0.0
+            df['high_return_action'] = "HOLD"
+            df['high_return_position'] = 0.0
+            df['super_trend_prob'] = 0.0
         
         # 基本面数据功能已删除（需要Tushare 2000积分以上权限）
         fundamentals = {}
@@ -376,7 +406,10 @@ def predict():
                     'pred_death_cross': bool(float(row['pred_death_cross'])) if 'pred_death_cross' in row else False,
                     'buy_probability': float(row['buy_probability']) if 'buy_probability' in row else 0.0,
                     'sell_probability': float(row['sell_probability']) if 'sell_probability' in row else 0.0,
-                    'pred_death_cross_proba': float(row['pred_death_cross_proba']) if 'pred_death_cross_proba' in row else 0.0
+                    'pred_death_cross_proba': float(row['pred_death_cross_proba']) if 'pred_death_cross_proba' in row else 0.0,
+                    'high_return_action': row['high_return_action'] if 'high_return_action' in row else "HOLD",
+                    'high_return_position': float(row['high_return_position']) if 'high_return_position' in row else 0.0,
+                    'super_trend_prob': float(row['super_trend_prob']) if 'super_trend_prob' in row else 0.0
                 }
                 history_data.append(history_item)
         
@@ -408,12 +441,28 @@ def predict():
         if not buy_signal and not sell_signal:
             message.append("📊 预测涨跌概率均较低，建议观望")
         
+        # 获取高收益策略信号
+        high_return_action = df['high_return_action'].iloc[-1] if 'high_return_action' in df.columns else "HOLD"
+        high_return_position = df['high_return_position'].iloc[-1] if 'high_return_position' in df.columns else 0.0
+        super_trend_prob = df['super_trend_prob'].iloc[-1] if 'super_trend_prob' in df.columns else 0.0
+        
+        # 添加高收益策略消息
+        if high_return_action == "HEAVY_BUY":
+            message.append(f"🚀 高收益策略：强烈买入，建议仓位 {high_return_position:.1%}")
+        elif high_return_action == "BUY":
+            message.append(f"📈 高收益策略：买入，建议仓位 {high_return_position:.1%}")
+        elif high_return_action == "HOLD":
+            message.append(f"📊 高收益策略：观望")
+        
         trading_signals = {
             'buy_signal': buy_signal,
             'sell_signal': sell_signal,
             'buy_probability': float(buy_probability),
             'sell_probability': float(sell_probability),
-            'message': ' '.join(message)
+            'message': ' '.join(message),
+            'high_return_action': high_return_action,
+            'high_return_position': float(high_return_position),
+            'super_trend_prob': float(super_trend_prob)
         }
         
         # 构建预测结果
@@ -479,6 +528,76 @@ def backtest():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/backtest_500pct', methods=['POST'])
+def backtest_500pct():
+    """回测高收益策略"""
+    data = request.json
+    ts_code = data.get('ts_code')
+    model_type = data.get('model_type', 'xgboost')
+    
+    try:
+        # 直接获取tushare数据
+        import tushare as ts
+        
+        # 直接使用正确的token
+        TUSHARE_TOKEN = '68e431d47c0319d7bdea7cd1daf164392d22c8a9216d99476354be78'
+        
+        # 初始化tushare
+        pro = ts.pro_api(TUSHARE_TOKEN)
+        
+        # 获取股票数据
+        import datetime
+        today = datetime.datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.datetime.now() - datetime.timedelta(days=1000)).strftime('%Y%m%d')  # 多拿数据
+        
+        print(f"正在获取股票 {ts_code} 的数据，时间范围：{start_date} 到 {today}")
+        df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=today)
+        
+        if df.empty:
+            print(f"无法获取股票 {ts_code} 的数据")
+            return jsonify({
+                'error': '无法获取股票数据',
+                'ts_code': ts_code
+            }), 404
+        
+        # 按日期排序
+        df = df.sort_values('trade_date').reset_index(drop=True)
+        
+        # 重命名列
+        df.rename(columns={
+            'trade_date': 'date',
+            'open': 'open',
+            'high': 'high',
+            'low': 'low',
+            'close': 'close',
+            'vol': 'volume',
+            'amount': 'amount'
+        }, inplace=True)
+        
+        # 转换日期格式
+        df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
+        
+        # 使用ModelTrainer进行高收益策略回测
+        from src.models.model_trainer import ModelTrainer
+        trainer = ModelTrainer()
+        
+        # 删除非数值列，避免模型训练错误
+        if 'ts_code' in df.columns:
+            df = df.drop('ts_code', axis=1)
+        
+        # 训练高收益模型
+        model, metrics = trainer.train_and_evaluate_500pct(df, model_type=model_type)
+        
+        # 回测结果
+        backtest_result = metrics['backtest']
+        
+        return jsonify(backtest_result)
+    except Exception as e:
+        print(f"高收益策略回测失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/fetch', methods=['POST'])
 def fetch_data():
     """获取股票数据"""
@@ -514,6 +633,72 @@ def train_model():
         
         return jsonify({'message': '模型训练完成'})
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/train_500pct', methods=['POST'])
+def train_500pct_model():
+    """训练高收益模型"""
+    data = request.json
+    ts_code = data.get('ts_code')
+    model_type = data.get('model_type', 'xgboost')
+    
+    try:
+        # 直接获取tushare数据
+        import tushare as ts
+        
+        # 直接使用正确的token
+        TUSHARE_TOKEN = '68e431d47c0319d7bdea7cd1daf164392d22c8a9216d99476354be78'
+        
+        # 初始化tushare
+        pro = ts.pro_api(TUSHARE_TOKEN)
+        
+        # 获取股票数据
+        import datetime
+        today = datetime.datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.datetime.now() - datetime.timedelta(days=1000)).strftime('%Y%m%d')  # 多拿数据
+        
+        print(f"正在获取股票 {ts_code} 的数据，时间范围：{start_date} 到 {today}")
+        df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=today)
+        
+        if df.empty:
+            print(f"无法获取股票 {ts_code} 的数据")
+            return jsonify({
+                'error': '无法获取股票数据',
+                'ts_code': ts_code
+            }), 404
+        
+        # 按日期排序
+        df = df.sort_values('trade_date').reset_index(drop=True)
+        
+        # 重命名列
+        df.rename(columns={
+            'trade_date': 'date',
+            'open': 'open',
+            'high': 'high',
+            'low': 'low',
+            'close': 'close',
+            'vol': 'volume',
+            'amount': 'amount'
+        }, inplace=True)
+        
+        # 转换日期格式
+        df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
+        
+        # 使用ModelTrainer训练高收益模型
+        from src.models.model_trainer import ModelTrainer
+        trainer = ModelTrainer()
+        
+        # 训练高收益模型
+        model, metrics = trainer.train_and_evaluate_500pct(df, model_type=model_type)
+        
+        return jsonify({
+            'message': '高收益模型训练完成',
+            'metrics': metrics
+        })
+    except Exception as e:
+        print(f"高收益模型训练失败: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/history', methods=['GET'])

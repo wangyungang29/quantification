@@ -104,7 +104,11 @@ python main.py backtest <股票代码> <开始日期> <结束日期> --model <�
 例如：
 ```bash
 python main.py backtest 600519.SH 20230101 20231231 --model xgboost
+
 ```
+
+接口运行
+python3 api.py
 
 ## 技术特点
 

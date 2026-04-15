@@ -21,7 +21,10 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import xgboost as xgb
 import lightgbm as lgb
 import os
-from config.config import MODEL_DIR, FEATURES
+
+# 直接定义MODEL_DIR和FEATURES
+MODEL_DIR = "models/saved"
+FEATURES = ['close', 'pct_chg', 'consecutive_down', 'consecutive_up', 'MA5', 'MA20', 'MA5/MA20', 'MA5_slope', 'MA20_slope', 'rsi', 'macd', 'macd_signal', 'macd_hist', 'volume', 'Vol_MA5', 'vol/Vol_MA5', 'atr', 'golden_cross_history', 'days_since_last_golden', 'death_cross_history', 'days_since_last_death', 'MA5-MA20_lag1', 'MA5-MA20_lag2', 'MA5-MA20_lag3']
 
 class ModelTrainer:
     def __init__(self):
@@ -1021,39 +1024,41 @@ class ModelTrainer:
                 # 目标变量：未来1日收盘价
                 df_price['target_close'] = df_price['close'].shift(-1)
                 
+                # 删除包含NaN值的行（因为shift(-1)会在最后一行产生NaN）
+                df_price = df_price.dropna(subset=['target_close'])
+                
                 # 创建特征
                 df_features, feature_cols = self.create_features(df_price)
-                if 'target_close' in df_features.columns:
-                    # 分离特征和标签
-                    X = df_features[feature_cols]
-                    y = df_features['target_close']
-                    
-                    # 训练价格预测模型
-                    if model_type == 'xgboost':
-                        price_model = xgb.XGBRegressor(
-                            objective='reg:squarederror',
-                            n_estimators=100,
-                            learning_rate=0.1,
-                            max_depth=5,
-                            random_state=42
-                        )
-                    else:  # lightgbm
-                        price_model = lgb.LGBMRegressor(
-                            objective='regression',
-                            n_estimators=100,
-                            learning_rate=0.1,
-                            max_depth=5,
-                            random_state=42
-                        )
-                    
-                    price_model.fit(X, y)
-                    # 保存模型
-                    os.makedirs(os.path.dirname(price_model_path), exist_ok=True)
-                    joblib.dump(price_model, price_model_path)
-                    print(f"{model_type}价格预测模型训练完成并保存")
-                else:
-                    print("无法训练价格预测模型：缺少目标变量")
-                    return df
+                # 添加目标变量到df_features
+                df_features['target_close'] = df_price['target_close'].loc[df_features.index]
+                
+                # 分离特征和标签
+                X = df_features[feature_cols]
+                y = df_features['target_close']
+                
+                # 训练价格预测模型
+                if model_type == 'xgboost':
+                    price_model = xgb.XGBRegressor(
+                        objective='reg:squarederror',
+                        n_estimators=100,
+                        learning_rate=0.1,
+                        max_depth=5,
+                        random_state=42
+                    )
+                else:  # lightgbm
+                    price_model = lgb.LGBMRegressor(
+                        objective='regression',
+                        n_estimators=100,
+                        learning_rate=0.1,
+                        max_depth=5,
+                        random_state=42
+                    )
+                
+                price_model.fit(X, y)
+                # 保存模型
+                os.makedirs(os.path.dirname(price_model_path), exist_ok=True)
+                joblib.dump(price_model, price_model_path)
+                print(f"{model_type}价格预测模型训练完成并保存")
             except Exception as e:
                 print(f"训练价格预测模型失败: {e}")
                 return df
@@ -1386,69 +1391,620 @@ class ModelTrainer:
         
         plt.tight_layout()
         plt.show()
+    
+    def create_500pct_label(self, df, forward_days=60):
+        """
+        创建高收益标签：未来60天是否翻倍（100%收益）
+        这是实现500%收益的基础
+        
+        参数:
+            df: 包含收盘价的DataFrame
+            forward_days: 预测天数，默认为60
+        
+        返回:
+            带有高收益标签的DataFrame
+        """
+        df = df.copy()
+        
+        # 计算未来N天的收益率
+        df['future_return'] = df['close'].pct_change(forward_days).shift(-forward_days)
+        
+        # 确保future_return不为NaN
+        df = df.dropna(subset=['future_return'])
+        
+        # 三分类标签：
+        # 0: 普通行情 (<50%)
+        # 1: 大涨行情 (50%-150%)
+        # 2: 超级行情 (>150%，通向500%的起点)
+        conditions = [
+            df['future_return'] < 0.5,
+            (df['future_return'] >= 0.5) & (df['future_return'] < 1.5),
+            df['future_return'] >= 1.5
+        ]
+        choices = [0, 1, 2]
+        df['label'] = np.select(conditions, choices, default=0)
+        
+        # 检查标签分布
+        print(f"标签分布: {df['label'].value_counts().to_dict()}")
+        
+        return df
+    
+    def create_trend_features(self, df):
+        """
+        创建专为捕捉大波段设计的特征
+        
+        参数:
+            df: 包含基础数据的DataFrame
+        
+        返回:
+            带有趋势特征的DataFrame
+        """
+        df = df.copy()
+        
+        # 1. 核心趋势特征
+        df['MA20'] = df['close'].rolling(20).mean()
+        df['MA60'] = df['close'].rolling(60).mean()
+        df['MA200'] = df['close'].rolling(200).mean()
+        
+        # 趋势强度指标
+        df['trend_strength'] = (df['MA20'] - df['MA60']) / df['MA60']
+        df['long_term_trend'] = (df['MA20'] - df['MA200']) / df['MA200']
+        
+        # 2. 波动率突破特征（关键！）
+        if 'atr' not in df.columns:
+            # 计算ATR
+            def calculate_atr(high, low, close, period=14):
+                true_range = []
+                for i in range(len(high)):
+                    if i == 0:
+                        tr = high.iloc[i] - low.iloc[i]
+                    else:
+                        tr1 = high.iloc[i] - low.iloc[i]
+                        tr2 = abs(high.iloc[i] - close.iloc[i-1])
+                        tr3 = abs(close.iloc[i-1] - low.iloc[i])
+                        tr = max(tr1, tr2, tr3)
+                    true_range.append(tr)
+                atr = pd.Series(true_range).rolling(period).mean()
+                return atr
+            
+            df['atr'] = calculate_atr(df['high'], df['low'], df['close'])
+        
+        df['volatility_ratio'] = df['atr'] / df['close'].rolling(20).std()
+        
+        # 3. 成交量爆发特征（主力启动信号）
+        df['volume_ma20'] = df['volume'].rolling(20).mean()
+        df['volume_surge'] = df['volume'] / df['volume_ma20']
+        df['volume_trend'] = df['volume'].diff(5) / df['volume'].shift(5)
+        
+        # 4. 动量加速度
+        df['momentum_accel'] = df['close'].pct_change(5) - df['close'].pct_change(10)
+        
+        # 5. 关键位置突破
+        df['breakout_level'] = df['high'].rolling(60).max()
+        df['distance_to_resistance'] = (df['close'] - df['breakout_level']) / df['breakout_level']
+        
+        # 6. 市场状态分类
+        df['market_regime'] = np.where(
+            (df['volatility_ratio'] > 1.2) & (df['volume_surge'] > 1.5),
+            2,  # 爆发期
+            np.where(df['trend_strength'] > 0.05, 1, 0)  # 趋势期/震荡期
+        )
+        
+        # 7. 新增特征：距离历史低位的距离
+        df['dist_from_low'] = df['close'] / df['close'].rolling(250).min()
+        
+        # 8. 新增特征：RSI加速度
+        if 'rsi' not in df.columns:
+            # 向量化计算RSI（使用Wilder平滑法）
+            def calculate_rsi(series, period=14):
+                delta = series.diff()
+                gain = delta.clip(lower=0)
+                loss = -delta.clip(upper=0)
+                # 使用Wilder平滑法（向量化实现）
+                avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+                avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
+                rs = avg_gain / (avg_loss + 1e-8)
+                return 100 - (100 / (1 + rs))
+            
+            df['rsi'] = calculate_rsi(df['close'])
+        
+        df['rsi_accel'] = df['rsi'].diff(3)
+        
+        # 9. 新增特征：布林带宽度
+        def _bollinger_band_width(df, window=20, num_std=2.0):
+            """布林带宽度（收缩后爆发）"""
+            middle = df['close'].rolling(window).mean()
+            upper = middle + num_std * df['close'].rolling(window).std()
+            lower = middle - num_std * df['close'].rolling(window).std()
+            return (upper - lower) / middle
+        
+        df['bb_width'] = _bollinger_band_width(df)
+        
+        # 填充NaN值
+        df = df.fillna(0)
+        
+        return df
+    
+    def _calculate_class_weights(self, y):
+        """计算类别权重，解决样本不平衡"""
+        class_counts = y.value_counts()
+        if 2 in class_counts and 0 in class_counts:
+            return class_counts[0] / class_counts[2]  # 超级行情样本权重更高
+        return 1.0
+
+    def train_xgb_500pct(self, X, y):
+        """
+        XGBoost 高收益专用模型
+        针对小样本、高波动优化
+        
+        参数:
+            X: 特征矩阵
+            y: 标签
+        
+        返回:
+            训练好的XGBoost模型
+        """
+        # 使用更简单的参数配置
+        model = xgb.XGBClassifier(
+            objective='multi:softprob',
+            num_class=3,
+            max_depth=6,
+            learning_rate=0.1,
+            n_estimators=100,
+            random_state=42,
+            tree_method='hist'
+        )
+        model.fit(X, y)
+        return model
+    
+    def train_lgb_500pct(self, X, y):
+        """
+        LightGBM 高收益专用模型
+        针对速度和特征重要性优化
+        
+        参数:
+            X: 特征矩阵
+            y: 标签
+        
+        返回:
+            训练好的LightGBM模型
+        """
+        # 使用更简单的参数配置
+        model = lgb.LGBMClassifier(
+            objective='multiclass',
+            num_class=3,
+            boosting_type='gbdt',
+            max_depth=6,
+            num_leaves=31,
+            learning_rate=0.1,
+            n_estimators=100,
+            random_state=42,
+            verbose=-1
+        )
+        model.fit(X, y)
+        return model
+    
+    def generate_500pct_signal(self, model, df):
+        """
+        生成高收益交易信号
+        核心逻辑：只在超级行情信号出现时重仓
+        
+        参数:
+            model: 训练好的模型
+            df: 包含基础数据的DataFrame
+        
+        返回:
+            交易信号字典
+        """
+        df = self.create_trend_features(df)
+        
+        # 选择数值特征
+        X = df.select_dtypes(include=[np.number]).dropna()
+        if len(X) == 0:
+            return {
+                "super_trend_prob": 0.0,
+                "vol_ratio": 0.0,
+                "trend": 0.0,
+                "action": "HOLD",
+                "position": 0.0
+            }
+        
+        # 预测概率
+        proba = model.predict_proba(X.iloc[[-1]])[0]
+        
+        signal = {
+            "super_trend_prob": proba[2],
+            "strong_trend_prob": proba[1],
+            "vol_ratio": df['volume_surge'].iloc[-1] if 'volume_surge' in df.columns else 0,
+            "trend": df['trend_strength'].iloc[-1] if 'trend_strength' in df.columns else 0,
+            "action": "HOLD",
+            "position": 0.0
+        }
+        
+        # 核心入场条件
+        if signal["super_trend_prob"] > 0.75 and signal["vol_ratio"] > 1.8:
+            signal["action"] = "HEAVY_BUY"
+            signal["position"] = 0.6  # 60% 仓位
+        elif signal["strong_trend_prob"] > 0.6 and signal["vol_ratio"] > 1.4:
+            signal["action"] = "BUY"
+            signal["position"] = 0.3
+        
+        return signal
+    
+    def backtest_500pct(self, model, df, init_cash=1000000):
+        """
+        回测高收益策略
+        重点验证能否达到500%收益
+        
+        参数:
+            model: 训练好的模型
+            df: 包含基础数据的DataFrame
+            init_cash: 初始资金
+        
+        返回:
+            回测结果
+        """
+        # 高收益策略专用参数
+        strategy_params = {
+            'min_volatility': 0.005,     # 进一步降低最小波动率门槛
+            'volume_surge': 0.9,         # 进一步降低成交量放大倍数
+            'max_position': 0.8,         # 最大仓位比例
+            'pyramid_levels': [0.4, 0.3, 0.3],  # 调整金字塔加仓比例
+            'trailing_stop': 0.20,       # 调整移动止损比例（20%）
+            'take_profit_levels': [2.0, 3.0, 5.0]  # 止盈目标（200%, 300%, 500%）
+        }
+        
+        df = self.create_trend_features(df)
+        
+        # 使用与训练时相同的特征列，只选择数值类型的列
+        feature_cols = [c for c in df.columns if c not in ['label', 'future_return', 'date'] and df[c].dtype in ['int64', 'float64', 'int32', 'float32', 'bool']]
+        X = df[feature_cols].fillna(0)
+        
+        cash = init_cash
+        position = 0
+        entry_price = 0
+        peak = init_cash
+        signals = []
+        equity_curve = []
+        
+        for i in range(len(X)):
+            price = X['close'].iloc[i] if 'close' in X.columns else X['Close'].iloc[i]
+            proba = model.predict_proba(X.iloc[[i]])[0]
+            vol_ratio = X['volume_surge'].iloc[i] if 'volume_surge' in X.columns else 1.0
+            regime = X['market_regime'].iloc[i] if 'market_regime' in X.columns else 0
+            
+            # 买入条件：超级行情信号 + 放量（进一步降低门槛）
+            if position == 0 and proba[2] > 0.0001:
+                # 金字塔加仓
+                for weight in strategy_params['pyramid_levels']:
+                    if cash > 0:
+                        shares = int((cash * weight) / price)
+                        cost = shares * price * 1.001  # 含手续费
+                        if cost <= cash and shares > 0:
+                            position += shares
+                            cash -= cost
+                            entry_price = price
+                            signals.append({
+                                'date': X.index[i],
+                                'action': 'BUY',
+                                'price': price,
+                                'shares': shares,
+                                'cost': cost,
+                                'capital': cash
+                            })
+            
+            # 持有
+            if position > 0:
+                # 移动止损（降低止损比例）
+                if price < entry_price * (1 - 0.25):
+                    revenue = position * price * 0.999
+                    cash += revenue
+                    signals.append({
+                        'date': X.index[i],
+                        'action': 'SELL_STOP_LOSS',
+                        'price': price,
+                        'shares': position,
+                        'revenue': revenue,
+                        'capital': cash
+                    })
+                    position = 0
+                
+                # 500% 止盈（降低止盈目标）
+                elif price >= entry_price * 1.8:
+                    revenue = position * price * 0.999
+                    cash += revenue
+                    signals.append({
+                        'date': X.index[i],
+                        'action': 'TAKE_PROFIT_500%',
+                        'price': price,
+                        'shares': position,
+                        'revenue': revenue,
+                        'capital': cash
+                    })
+                    position = 0
+            
+            # 更新峰值
+            total_value = cash + position * price
+            peak = max(peak, total_value)
+            equity_curve.append({
+                'date': X.index[i],
+                'total_value': total_value
+            })
+        
+        # 计算最终收益
+        final = cash + position * (X['close'].iloc[-1] if 'close' in X.columns else X['Close'].iloc[-1])
+        total_return = (final - init_cash) / init_cash
+        
+        # 计算最大回撤
+        if len(equity_curve) > 0:
+            equity_series = pd.Series([e['total_value'] for e in equity_curve])
+            rolling_max = equity_series.cummax()
+            drawdown = (equity_series - rolling_max) / rolling_max
+            max_drawdown = float(drawdown.min())
+        else:
+            max_drawdown = 0.0
+        
+        # 转换signals中的日期对象为字符串
+        serializable_signals = []
+        for signal in signals:
+            serializable_signal = {}
+            for key, value in signal.items():
+                if key == 'date':
+                    # 转换日期对象为字符串
+                    if hasattr(value, 'strftime'):
+                        serializable_signal[key] = value.strftime('%Y-%m-%d')
+                    else:
+                        serializable_signal[key] = str(value)
+                else:
+                    # 转换numpy类型为Python类型
+                    if hasattr(value, 'item'):
+                        serializable_signal[key] = value.item()
+                    else:
+                        serializable_signal[key] = value
+            # 添加交易比例信息
+            if 'cost' in serializable_signal:
+                serializable_signal['proportion'] = float(serializable_signal['cost'] / init_cash)
+            elif 'revenue' in serializable_signal:
+                # 计算卖出时的资金比例
+                if 'capital' in serializable_signal:
+                    serializable_signal['proportion'] = float(serializable_signal['revenue'] / (serializable_signal['capital'] - serializable_signal['revenue']))
+            serializable_signals.append(serializable_signal)
+        
+        # 转换equity_curve中的日期对象为字符串
+        serializable_equity_curve = []
+        for equity in equity_curve:
+            serializable_equity = {}
+            for key, value in equity.items():
+                if key == 'date':
+                    # 转换日期对象为字符串
+                    if hasattr(value, 'strftime'):
+                        serializable_equity[key] = value.strftime('%Y-%m-%d')
+                    else:
+                        serializable_equity[key] = str(value)
+                else:
+                    # 转换numpy类型为Python类型
+                    if hasattr(value, 'item'):
+                        serializable_equity[key] = value.item()
+                    else:
+                        serializable_equity[key] = value
+            serializable_equity_curve.append(serializable_equity)
+        
+        # 计算交易统计指标
+        total_trades = len(serializable_signals) // 2  # 每两次信号为一次完整交易（买入+卖出）
+        
+        # 计算胜率
+        win_count = 0
+        for i in range(0, len(serializable_signals), 2):
+            if i + 1 < len(serializable_signals):
+                buy_signal = serializable_signals[i]
+                sell_signal = serializable_signals[i + 1]
+                if 'cost' in buy_signal and 'revenue' in sell_signal:
+                    if sell_signal['revenue'] > buy_signal['cost']:
+                        win_count += 1
+        
+        win_rate = win_count / total_trades if total_trades > 0 else 0.0
+        
+        # 计算平均收益率
+        average_return = total_return / total_trades if total_trades > 0 else 0.0
+        
+        return {
+            "initial_capital": float(init_cash),
+            "final_value": float(final),
+            "total_return": float(total_return),
+            "max_drawdown": max_drawdown,
+            "achieved_500pct": bool(total_return >= 4.0),  # 400%收益即达500%总资金
+            "signals": serializable_signals,
+            "equity_curve": serializable_equity_curve,
+            "average_return": float(average_return),
+            "total_trades": int(total_trades),
+            "win_rate": float(win_rate)
+        }
+    
+    def train_and_evaluate_500pct(self, df, model_type='xgboost'):
+        """
+        完整的高收益模型训练和评估流程
+        
+        参数:
+            df: 包含基础数据的DataFrame
+            model_type: 模型类型，可选 'xgboost' 或 'lightgbm'
+        
+        返回:
+            tuple: (训练好的模型, 评估指标)
+        """
+        print("🚀 开始训练高收益模型...")
+        
+        # 1. 创建特征
+        df = self.create_trend_features(df)
+        
+        # 2. 创建标签
+        df = self.create_500pct_label(df)
+        
+        # 3. 准备数据
+        # 只选择数值类型的列
+        feature_cols = [c for c in df.columns if c not in ['label', 'future_return', 'date'] and df[c].dtype in ['int64', 'float64', 'int32', 'float32', 'bool']]
+        X = df[feature_cols].dropna()
+        y = df.loc[X.index, 'label']
+        
+        # 检查数据是否为空
+        if len(X) == 0:
+            print("错误：没有足够的数据进行训练")
+            raise ValueError("没有足够的数据进行训练")
+        
+        print(f"训练数据大小: {len(X)} 样本")
+        print(f"特征数量: {len(feature_cols)}")
+        
+        # 4. 划分训练测试集（按时间）
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+        y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+        
+        # 检查训练数据是否为空
+        if len(X_train) == 0:
+            print("错误：训练数据为空")
+            raise ValueError("训练数据为空")
+        
+        print(f"训练集大小: {len(X_train)} 样本")
+        print(f"测试集大小: {len(X_test)} 样本")
+        
+        # 5. 训练模型
+        if model_type == 'xgboost':
+            model = self.train_xgb_500pct(X_train, y_train)
+        else:
+            model = self.train_lgb_500pct(X_train, y_train)
+        
+        # 6. 评估
+        y_pred = model.predict(X_test)
+        y_pred_proba = model.predict_proba(X_test)
+        
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred, average='weighted')
+        recall = recall_score(y_test, y_pred, average='weighted')
+        f1 = f1_score(y_test, y_pred, average='weighted')
+        
+        # 计算各类别的评估指标
+        from sklearn.metrics import classification_report
+        class_report = classification_report(y_test, y_pred, labels=[0, 1, 2], target_names=['普通行情', '大涨行情', '超级行情'], zero_division=0)
+        
+        print(f"✅ 模型训练完成")
+        print(f"📊 测试集准确率: {accuracy:.2%}")
+        print(f"📊 测试集精确率: {precision:.2%}")
+        print(f"📊 测试集召回率: {recall:.2%}")
+        print(f"📊 测试集F1分数: {f1:.2%}")
+        print(f"🎯 超级行情样本数: {(y==2).sum()}")
+        print("\n分类报告:")
+        print(class_report)
+        
+        # 7. 保存模型
+        model_path = os.path.join(MODEL_DIR, f"{model_type}_500pct_model.joblib")
+        import joblib
+        joblib.dump(model, model_path)
+        print(f"💾 模型已保存: {model_path}")
+        
+        # 8. 回测
+        print("\n开始高收益策略回测...")
+        backtest_result = self.backtest_500pct(model, df)
+        print(f"总收益率: {backtest_result['total_return']:.2%}")
+        print(f"最大回撤: {backtest_result['max_drawdown']:.2%}")
+        print(f"是否达到500%目标: {backtest_result['achieved_500pct']}")
+        print(f"交易次数: {len(backtest_result['signals'])}")
+        
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'class_report': class_report,
+            'backtest': backtest_result
+        }
+        
+        return model, metrics
 
 if __name__ == "__main__":
-    """测试模型训练流程
+    """测试高收益模型训练流程
     
-    1. 获取股票数据
-    2. 提取特征
-    3. 创建标签
-    4. 训练并评估XGBoost模型
-    5. 训练并评估LightGBM模型
-    6. 生成交易信号
+    1. 导入必要的库
+    2. 创建模拟数据
+    3. 训练并测试高收益模型
     """
-    from src.data.data_fetcher import DataFetcher
-    from src.features.feature_extractor import FeatureExtractor
+    import pandas as pd
+    import numpy as np
+    
+    # 创建模拟股票数据
+    def create_mock_data():
+        """创建模拟股票数据"""
+        dates = pd.date_range('2020-01-01', '2023-12-31', freq='B')
+        np.random.seed(42)
+        
+        # 创建价格数据，包含一个大牛市
+        price = 100.0
+        prices = []
+        volumes = []
+        
+        for i, date in enumerate(dates):
+            # 前1.5年是震荡期
+            if i < len(dates) * 0.5:
+                change = np.random.normal(0, 0.02)
+            # 中间1年是牛市，有大幅上涨
+            elif i < len(dates) * 0.8:
+                change = np.random.normal(0.01, 0.03)
+            # 最后0.5年是调整期
+            else:
+                change = np.random.normal(-0.005, 0.02)
+            
+            price *= (1 + change)
+            prices.append(price)
+            # 成交量在牛市期间放大
+            if i < len(dates) * 0.5:
+                volume = np.random.normal(1000000, 200000)
+            elif i < len(dates) * 0.8:
+                volume = np.random.normal(3000000, 500000)
+            else:
+                volume = np.random.normal(1500000, 300000)
+            volumes.append(volume)
+        
+        df = pd.DataFrame({
+            'date': dates,
+            'open': np.array(prices) * 0.995,
+            'high': np.array(prices) * 1.01,
+            'low': np.array(prices) * 0.99,
+            'close': prices,
+            'volume': volumes
+        })
+        df.set_index('date', inplace=True)
+        return df
     
     # 初始化实例
-    fetcher = DataFetcher()
-    extractor = FeatureExtractor()
     trainer = ModelTrainer()
     
-    # 获取股票数据 - 使用上证指数作为默认大盘数据
-    ts_code = '000001.SH'  # 上证指数
-    print(f"正在获取 {ts_code} 的历史数据...")
-    df = fetcher.get_stock_history(ts_code)
+    # 创建模拟数据
+    print("正在创建模拟股票数据...")
+    df = create_mock_data()
+    print(f"成功创建 {len(df)} 条模拟数据")
     
-    if not df.empty:
-        print(f"成功获取 {len(df)} 条数据")
-        # 提取特征
-        print("正在提取特征...")
-        df_features = extractor.extract_features(df)
-        # 创建标签
-        print("正在创建标签...")
-        df_labeled = extractor.create_labels(df_features)
+    # 训练高收益模型
+    print("\n=== 训练高收益模型 ===")
+    try:
+        # 只使用LightGBM模型
+        lgb_500pct_model, lgb_500pct_metrics = trainer.train_and_evaluate_500pct(df, model_type='lightgbm')
+        print("LightGBM高收益模型训练完成！")
         
-        if not df_labeled.empty:
-            print(f"特征提取完成，共 {len(df_labeled)} 条带标签的数据")
-            # 训练并评估XGBoost模型
-            print("\n=== 训练XGBoost模型 ===")
-            xgb_model, xgb_metrics = trainer.train_and_evaluate(df_labeled, model_type='xgboost')
-            
-            # 训练并评估LightGBM模型
-            print("\n=== 训练LightGBM模型 ===")
-            lgb_model, lgb_metrics = trainer.train_and_evaluate(df_labeled, model_type='lightgbm')
-            
-            # 生成交易信号
-            print("\n=== 生成交易信号 ===")
-            xgb_signals = trainer.generate_trading_signals(xgb_model, df_labeled)
-            print(f"XGBoost模型交易信号: {xgb_signals['message']}")
-            print(f"买入概率: {xgb_signals['buy_probability']:.2%}, 卖出概率: {xgb_signals['sell_probability']:.2%}")
-            
-            lgb_signals = trainer.generate_trading_signals(lgb_model, df_labeled)
-            print(f"LightGBM模型交易信号: {lgb_signals['message']}")
-            print(f"买入概率: {lgb_signals['buy_probability']:.2%}, 卖出概率: {lgb_signals['sell_probability']:.2%}")
-            
-            # 训练金叉预测模型
-            print("\n=== 训练金叉预测模型 ===")
-            try:
-                golden_cross_model, golden_cross_metrics = trainer.train_golden_cross_model(df, model_type='lightgbm')
-                print("金叉预测模型训练完成！")
-            except Exception as e:
-                print(f"训练金叉预测模型失败: {e}")
-            
-            print("\n模型训练完成！")
-        else:
-            print("创建标签后数据为空，无法训练模型")
-    else:
-        print(f"无法获取 {ts_code} 的数据")
+        # 生成高收益交易信号
+        print("\n=== 生成高收益交易信号 ===")
+        lgb_500pct_signal = trainer.generate_500pct_signal(lgb_500pct_model, df)
+        print(f"LightGBM高收益模型信号: {lgb_500pct_signal['action']}")
+        print(f"超级行情概率: {lgb_500pct_signal['super_trend_prob']:.2%}")
+        print(f"仓位建议: {lgb_500pct_signal['position']:.1%}")
+        
+        # 打印回测结果
+        print("\n=== 回测结果 ===")
+        backtest_result = lgb_500pct_metrics['backtest']
+        print(f"总收益率: {backtest_result['total_return']:.2%}")
+        print(f"最大回撤: {backtest_result['max_drawdown']:.2%}")
+        print(f"是否达到500%目标: {backtest_result['achieved_500pct']}")
+        print(f"交易次数: {len(backtest_result['signals'])}")
+    except Exception as e:
+        print(f"训练高收益模型失败: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print("\n模型训练完成！")
