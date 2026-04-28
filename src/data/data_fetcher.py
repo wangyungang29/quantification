@@ -20,17 +20,50 @@ class DataFetcher:
     def get_stock_history(self, ts_code, start_date=None, end_date=None, days=HISTORY_DAYS):
         """获取股票历史数据"""
         try:
+            import datetime
+            current_date = datetime.datetime.now().strftime('%Y%m%d')
+            
             if not start_date:
                 # 计算起始日期
-                import datetime
-                end = end_date if end_date else datetime.datetime.now().strftime('%Y%m%d')
-                start = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime('%Y%m%d')
+                end = end_date if end_date else current_date
+                # 确保end_date不晚于当前日期
+                end = min(end, current_date)
+                # 确保至少获取60天的数据
+                start = (datetime.datetime.now() - datetime.timedelta(days=max(days, 60))).strftime('%Y%m%d')
             else:
                 start = start_date
-                end = end_date if end_date else datetime.datetime.now().strftime('%Y%m%d')
+                end = end_date if end_date else current_date
+                # 确保end_date不晚于当前日期
+                end = min(end, current_date)
+                # 确保start_date不晚于end_date
+                if start > end:
+                    print(f"警告: 起始日期 {start} 晚于结束日期 {end}，将使用默认日期范围")
+                    # 确保至少获取60天的数据
+                    start = (datetime.datetime.now() - datetime.timedelta(days=max(days, 60))).strftime('%Y%m%d')
+                    end = current_date
+                else:
+                    # 计算日期差，确保至少获取60天的数据
+                    start_date_obj = datetime.datetime.strptime(start, '%Y%m%d')
+                    end_date_obj = datetime.datetime.strptime(end, '%Y%m%d')
+                    days_diff = (end_date_obj - start_date_obj).days
+                    if days_diff < 60:
+                        print(f"警告: 日期范围过短（{days_diff}天），将自动扩展为60天")
+                        start = (end_date_obj - datetime.timedelta(days=60)).strftime('%Y%m%d')
+            
+            print(f"获取股票 {ts_code} 的历史数据，日期范围: {start} 到 {end}")
             
             # 获取日线数据
             df = self.pro.daily(ts_code=ts_code, start_date=start, end_date=end)
+            
+            # 检查数据是否为空
+            if df.empty:
+                print(f"无法获取股票 {ts_code} 的数据，日期范围: {start} 到 {end}")
+                # 如果数据为空，尝试使用默认日期范围
+                # 确保至少获取60天的数据
+                start = (datetime.datetime.now() - datetime.timedelta(days=max(days, 60))).strftime('%Y%m%d')
+                end = current_date
+                print(f"尝试使用默认日期范围: {start} 到 {end}")
+                df = self.pro.daily(ts_code=ts_code, start_date=start, end_date=end)
             
             # 按日期排序
             df = df.sort_values('trade_date').reset_index(drop=True)
@@ -48,6 +81,8 @@ class DataFetcher:
             
             # 转换日期格式
             df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
+            
+            print(f"成功获取股票 {ts_code} 的历史数据，共 {len(df)} 条")
             
             return df
         except Exception as e:

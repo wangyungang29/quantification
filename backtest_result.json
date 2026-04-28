@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang=en>
+  <head>
+    <title>BrokenPipeError: [Errno 32] Broken pipe
+ // Werkzeug Debugger</title>
+    <link rel="stylesheet" href="?__debugger__=yes&amp;cmd=resource&amp;f=style.css">
+    <link rel="shortcut icon"
+        href="?__debugger__=yes&amp;cmd=resource&amp;f=console.png">
+    <script src="?__debugger__=yes&amp;cmd=resource&amp;f=debugger.js"></script>
+    <script>
+      var CONSOLE_MODE = false,
+          EVALEX = true,
+          EVALEX_TRUSTED = false,
+          SECRET = "Sb1Yvx1FJFhJ4wvCfIxc";
+    </script>
+  </head>
+  <body style="background-color: #fff">
+    <div class="debugger">
+<h1>BrokenPipeError</h1>
+<div class="detail">
+  <p class="errormsg">BrokenPipeError: [Errno 32] Broken pipe
+</p>
+</div>
+<h2 class="traceback">Traceback <em>(most recent call last)</em></h2>
+<div class="traceback">
+  <h3></h3>
+  <ul><li><div class="frame" id="frame-4410431024">
+  <h4>File <cite class="filename">"/Users/wangyungang/Desktop/quantification/api.py"</cite>,
+      line <em class="line">612</em>,
+      in <code class="function">backtest</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">        </span># 直接使用Backtester进行回测</pre>
+<pre class="line before"><span class="ws">        </span>from src.backtest.backtester import Backtester</pre>
+<pre class="line before"><span class="ws">        </span>backtester = Backtester()</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">        </span># 运行回测</pre>
+<pre class="line current"><span class="ws">        </span>results = backtester.run_backtest(ts_code, start_date, end_date, model_type=model_type)
+<span class="ws">        </span>          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">        </span>if results:</pre>
+<pre class="line after"><span class="ws">            </span>return jsonify(results)</pre>
+<pre class="line after"><span class="ws">        </span>else:</pre>
+<pre class="line after"><span class="ws">            </span># 如果回测失败，返回错误信息</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410431168">
+  <h4>File <cite class="filename">"/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py"</cite>,
+      line <em class="line">461</em>,
+      in <code class="function">run_backtest</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">        </span>cerebro.addanalyzer(bt.analyzers.Returns, _name=&#39;returns&#39;)</pre>
+<pre class="line before"><span class="ws">        </span>cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name=&#39;trades&#39;)</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">        </span># 运行回测</pre>
+<pre class="line before"><span class="ws">        </span>print(f&#34;开始回测股票 {ts_code}...&#34;)</pre>
+<pre class="line current"><span class="ws">        </span>results = cerebro.run()
+<span class="ws">        </span>          ^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">        </span># 提取分析结果</pre>
+<pre class="line after"><span class="ws">        </span>strat = results[0]</pre>
+<pre class="line after"><span class="ws">        </span>sharpe = strat.analyzers.sharpe.get_analysis()</pre>
+<pre class="line after"><span class="ws">        </span>drawdown = strat.analyzers.drawdown.get_analysis()</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410431456">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py"</cite>,
+      line <em class="line">1132</em>,
+      in <code class="function">run</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws">        </span>iterstrats = itertools.product(*self.strats)</pre>
+<pre class="line before"><span class="ws">        </span>if not self._dooptimize or self.p.maxcpus == 1:</pre>
+<pre class="line before"><span class="ws">            </span># If no optimmization is wished ... or 1 core is to be used</pre>
+<pre class="line before"><span class="ws">            </span># let&#39;s skip process &#34;spawning&#34;</pre>
+<pre class="line before"><span class="ws">            </span>for iterstrat in iterstrats:</pre>
+<pre class="line current"><span class="ws">                </span>runstrat = self.runstrategies(iterstrat)
+<span class="ws">                </span>           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">                </span>self.runstrats.append(runstrat)</pre>
+<pre class="line after"><span class="ws">                </span>if self._dooptimize:</pre>
+<pre class="line after"><span class="ws">                    </span>for cb in self.optcbs:</pre>
+<pre class="line after"><span class="ws">                        </span>cb(runstrat)  # callback receives finished strategy</pre>
+<pre class="line after"><span class="ws">        </span>else:</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410431600">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py"</cite>,
+      line <em class="line">1298</em>,
+      in <code class="function">runstrategies</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">            </span>if self._dopreload and self._dorunonce:</pre>
+<pre class="line before"><span class="ws">                </span>if self.p.oldsync:</pre>
+<pre class="line before"><span class="ws">                    </span>self._runonce_old(runstrats)</pre>
+<pre class="line before"><span class="ws">                </span>else:</pre>
+<pre class="line current"><span class="ws">                    </span>self._runonce(runstrats)
+<span class="ws">                    </span>^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">            </span>else:</pre>
+<pre class="line after"><span class="ws">                </span>if self.p.oldsync:</pre>
+<pre class="line after"><span class="ws">                    </span>self._runnext_old(runstrats)</pre>
+<pre class="line after"><span class="ws">                </span>else:</pre>
+<pre class="line after"><span class="ws">                    </span>self._runnext(runstrats)</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410431744">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py"</cite>,
+      line <em class="line">1700</em>,
+      in <code class="function">_runonce</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws">                </span>return</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">            </span>self._check_timers(runstrats, dt0, cheat=False)</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">            </span>for strat in runstrats:</pre>
+<pre class="line current"><span class="ws">                </span>strat._oncepost(dt0)
+<span class="ws">                </span>^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">                </span>if self._event_stop:  # stop if requested</pre>
+<pre class="line after"><span class="ws">                    </span>return</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">                </span>self._next_writers(runstrats)</pre>
+<pre class="line after"><span class="ws"></span> </pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410431888">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/strategy.py"</cite>,
+      line <em class="line">309</em>,
+      in <code class="function">_oncepost</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws">        </span>self.lines.datetime[0] = dt</pre>
+<pre class="line before"><span class="ws">        </span>self._notify()</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">        </span>minperstatus = self._getminperstatus()</pre>
+<pre class="line before"><span class="ws">        </span>if minperstatus &lt; 0:</pre>
+<pre class="line current"><span class="ws">            </span>self.next()
+<span class="ws">            </span>^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">        </span>elif minperstatus == 0:</pre>
+<pre class="line after"><span class="ws">            </span>self.nextstart()  # only called for the 1st value</pre>
+<pre class="line after"><span class="ws">        </span>else:</pre>
+<pre class="line after"><span class="ws">            </span>self.prenext()</pre>
+<pre class="line after"><span class="ws"></span> </pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410432032">
+  <h4>File <cite class="filename">"/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py"</cite>,
+      line <em class="line">44</em>,
+      in <code class="function">next</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">        </span>consecutive_down = self.current_features.get(&#39;consecutive_down&#39;, 0).iloc[-1]</pre>
+<pre class="line before"><span class="ws">        </span>rsi = self.current_features.get(&#39;rsi&#39;, 50).iloc[-1]</pre>
+<pre class="line before"><span class="ws">        </span>volume_ratio = self.current_features.get(&#39;vol/Vol_MA5&#39;, 1.0).iloc[-1]</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">        </span>up_prob = 0.5</pre>
+<pre class="line current"><span class="ws">        </span>self._execute_trade(up_prob, consecutive_down, rsi, volume_ratio)
+<span class="ws">        </span>^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">    </span>def _build_full_features(self):</pre>
+<pre class="line after"><span class="ws">        </span>&#34;&#34;&#34;构建与训练时完全一致的特征（含辅助指标）&#34;&#34;&#34;</pre>
+<pre class="line after"><span class="ws">        </span># 获取最近60天数据</pre>
+<pre class="line after"><span class="ws">        </span>data = self.datas[0]</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410432176">
+  <h4>File <cite class="filename">"/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py"</cite>,
+      line <em class="line">232</em>,
+      in <code class="function">_execute_trade</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">            </span>and (volume_ratio &gt; 1.2)</pre>
+<pre class="line before"><span class="ws">            </span>and (consecutive_down &gt;= 2)</pre>
+<pre class="line before"><span class="ws">        </span>)</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">        </span># 调试输出</pre>
+<pre class="line current"><span class="ws">        </span>print(f&#34;日期={self.data.datetime.date(0)}, RSI={rsi:.1f}, 量比={volume_ratio:.2f}, 连跌={consecutive_down}, 买入={buy_condition}&#34;)
+<span class="ws">        </span>^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">        </span># 5. 止盈止损条件（保留但不触发）</pre>
+<pre class="line after"><span class="ws">        </span>short_term_profit = 0.15  # 15%止盈</pre>
+<pre class="line after"><span class="ws">        </span>stop_loss = 0.08  # 8%止损</pre>
+<pre class="line after"><span class="ws"></span> </pre></div>
+</div>
+
+<li><div class="exc-divider">During handling of the above exception, another exception occurred:</div>
+<li><div class="frame" id="frame-4409898560">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py"</cite>,
+      line <em class="line">1536</em>,
+      in <code class="function">__call__</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">    </span>) -&gt; cabc.Iterable[bytes]:</pre>
+<pre class="line before"><span class="ws">        </span>&#34;&#34;&#34;The WSGI server calls the Flask application object as the</pre>
+<pre class="line before"><span class="ws">        </span>WSGI application. This calls :meth:`wsgi_app`, which can be</pre>
+<pre class="line before"><span class="ws">        </span>wrapped to apply middleware.</pre>
+<pre class="line before"><span class="ws">        </span>&#34;&#34;&#34;</pre>
+<pre class="line current"><span class="ws">        </span>return self.wsgi_app(environ, start_response)
+<span class="ws">        </span>       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409899424">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py"</cite>,
+      line <em class="line">1514</em>,
+      in <code class="function">wsgi_app</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">            </span>try:</pre>
+<pre class="line before"><span class="ws">                </span>ctx.push()</pre>
+<pre class="line before"><span class="ws">                </span>response = self.full_dispatch_request()</pre>
+<pre class="line before"><span class="ws">            </span>except Exception as e:</pre>
+<pre class="line before"><span class="ws">                </span>error = e</pre>
+<pre class="line current"><span class="ws">                </span>response = self.handle_exception(e)
+<span class="ws">                </span>           ^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">            </span>except:</pre>
+<pre class="line after"><span class="ws">                </span>error = sys.exc_info()[1]</pre>
+<pre class="line after"><span class="ws">                </span>raise</pre>
+<pre class="line after"><span class="ws">            </span>return response(environ, start_response)</pre>
+<pre class="line after"><span class="ws">        </span>finally:</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409899568">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask_cors/extension.py"</cite>,
+      line <em class="line">176</em>,
+      in <code class="function">wrapped_function</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">        </span># These error handlers will still respect the behavior of the route</pre>
+<pre class="line before"><span class="ws">        </span>if options.get(&#34;intercept_exceptions&#34;, True):</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">            </span>def _after_request_decorator(f):</pre>
+<pre class="line before"><span class="ws">                </span>def wrapped_function(*args, **kwargs):</pre>
+<pre class="line current"><span class="ws">                    </span>return cors_after_request(app.make_response(f(*args, **kwargs)))
+<span class="ws">                    </span>                                            ^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">                </span>return wrapped_function</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">            </span>if hasattr(app, &#34;handle_exception&#34;):</pre>
+<pre class="line after"><span class="ws">                </span>app.handle_exception = _after_request_decorator(app.handle_exception)</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409900288">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py"</cite>,
+      line <em class="line">1511</em>,
+      in <code class="function">wsgi_app</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">        </span>ctx = self.request_context(environ)</pre>
+<pre class="line before"><span class="ws">        </span>error: BaseException | None = None</pre>
+<pre class="line before"><span class="ws">        </span>try:</pre>
+<pre class="line before"><span class="ws">            </span>try:</pre>
+<pre class="line before"><span class="ws">                </span>ctx.push()</pre>
+<pre class="line current"><span class="ws">                </span>response = self.full_dispatch_request()
+<span class="ws">                </span>           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">            </span>except Exception as e:</pre>
+<pre class="line after"><span class="ws">                </span>error = e</pre>
+<pre class="line after"><span class="ws">                </span>response = self.handle_exception(e)</pre>
+<pre class="line after"><span class="ws">            </span>except:</pre>
+<pre class="line after"><span class="ws">                </span>error = sys.exc_info()[1]</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409900432">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py"</cite>,
+      line <em class="line">919</em>,
+      in <code class="function">full_dispatch_request</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">            </span>request_started.send(self, _async_wrapper=self.ensure_sync)</pre>
+<pre class="line before"><span class="ws">            </span>rv = self.preprocess_request()</pre>
+<pre class="line before"><span class="ws">            </span>if rv is None:</pre>
+<pre class="line before"><span class="ws">                </span>rv = self.dispatch_request()</pre>
+<pre class="line before"><span class="ws">        </span>except Exception as e:</pre>
+<pre class="line current"><span class="ws">            </span>rv = self.handle_user_exception(e)
+<span class="ws">            </span>     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">        </span>return self.finalize_request(rv)</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">    </span>def finalize_request(</pre>
+<pre class="line after"><span class="ws">        </span>self,</pre>
+<pre class="line after"><span class="ws">        </span>rv: ft.ResponseReturnValue | HTTPException,</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409900576">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask_cors/extension.py"</cite>,
+      line <em class="line">176</em>,
+      in <code class="function">wrapped_function</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">        </span># These error handlers will still respect the behavior of the route</pre>
+<pre class="line before"><span class="ws">        </span>if options.get(&#34;intercept_exceptions&#34;, True):</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">            </span>def _after_request_decorator(f):</pre>
+<pre class="line before"><span class="ws">                </span>def wrapped_function(*args, **kwargs):</pre>
+<pre class="line current"><span class="ws">                    </span>return cors_after_request(app.make_response(f(*args, **kwargs)))
+<span class="ws">                    </span>                                            ^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">                </span>return wrapped_function</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">            </span>if hasattr(app, &#34;handle_exception&#34;):</pre>
+<pre class="line after"><span class="ws">                </span>app.handle_exception = _after_request_decorator(app.handle_exception)</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409900720">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py"</cite>,
+      line <em class="line">917</em>,
+      in <code class="function">full_dispatch_request</code></h4>
+  <div class="source "><pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws">        </span>try:</pre>
+<pre class="line before"><span class="ws">            </span>request_started.send(self, _async_wrapper=self.ensure_sync)</pre>
+<pre class="line before"><span class="ws">            </span>rv = self.preprocess_request()</pre>
+<pre class="line before"><span class="ws">            </span>if rv is None:</pre>
+<pre class="line current"><span class="ws">                </span>rv = self.dispatch_request()
+<span class="ws">                </span>     ^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">        </span>except Exception as e:</pre>
+<pre class="line after"><span class="ws">            </span>rv = self.handle_user_exception(e)</pre>
+<pre class="line after"><span class="ws">        </span>return self.finalize_request(rv)</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">    </span>def finalize_request(</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4409900864">
+  <h4>File <cite class="filename">"/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py"</cite>,
+      line <em class="line">902</em>,
+      in <code class="function">dispatch_request</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">            </span>and req.method == &#34;OPTIONS&#34;</pre>
+<pre class="line before"><span class="ws">        </span>):</pre>
+<pre class="line before"><span class="ws">            </span>return self.make_default_options_response()</pre>
+<pre class="line before"><span class="ws">        </span># otherwise dispatch to the handler for that endpoint</pre>
+<pre class="line before"><span class="ws">        </span>view_args: dict[str, t.Any] = req.view_args  # type: ignore[assignment]</pre>
+<pre class="line current"><span class="ws">        </span>return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+<span class="ws">        </span>       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws">    </span>def full_dispatch_request(self) -&gt; Response:</pre>
+<pre class="line after"><span class="ws">        </span>&#34;&#34;&#34;Dispatches the request and on top of that performs request</pre>
+<pre class="line after"><span class="ws">        </span>pre and postprocessing as well as HTTP exception catching and</pre>
+<pre class="line after"><span class="ws">        </span>error handling.</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410425408">
+  <h4>File <cite class="filename">"/Users/wangyungang/Desktop/quantification/api.py"</cite>,
+      line <em class="line">622</em>,
+      in <code class="function">backtest</code></h4>
+  <div class="source "><pre class="line before"><span class="ws">            </span># 如果回测失败，返回错误信息</pre>
+<pre class="line before"><span class="ws">            </span>return jsonify({&#39;error&#39;: &#39;回测失败，请先训练模型&#39;}), 400</pre>
+<pre class="line before"><span class="ws">    </span>except Exception as e:</pre>
+<pre class="line before"><span class="ws">        </span>print(f&#34;回测失败: {e}&#34;)</pre>
+<pre class="line before"><span class="ws">        </span>import traceback</pre>
+<pre class="line current"><span class="ws">        </span>traceback.print_exc()
+<span class="ws">        </span>^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws">        </span>return jsonify({&#39;error&#39;: str(e)}), 500</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span>@app.route(&#39;/api/fetch&#39;, methods=[&#39;POST&#39;])</pre>
+<pre class="line after"><span class="ws"></span>def fetch_data():</pre>
+<pre class="line after"><span class="ws">    </span>&#34;&#34;&#34;获取股票数据&#34;&#34;&#34;</pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410425552">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py"</cite>,
+      line <em class="line">208</em>,
+      in <code class="function">print_exc</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws"></span># --</pre>
+<pre class="line before"><span class="ws"></span> </pre>
+<pre class="line before"><span class="ws"></span>def print_exc(limit=None, file=None, chain=True):</pre>
+<pre class="line before"><span class="ws">    </span>&#34;&#34;&#34;Shorthand for &#39;print_exception(sys.exception(), limit, file, chain)&#39;.&#34;&#34;&#34;</pre>
+<pre class="line current"><span class="ws">    </span>print_exception(sys.exception(), limit=limit, file=file, chain=chain)
+<span class="ws">    </span>^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span>def format_exc(limit=None, chain=True):</pre>
+<pre class="line after"><span class="ws">    </span>&#34;&#34;&#34;Like print_exc() but return a string.&#34;&#34;&#34;</pre>
+<pre class="line after"><span class="ws">    </span>return &#34;&#34;.join(format_exception(sys.exception(), limit=limit, chain=chain))</pre>
+<pre class="line after"><span class="ws"></span> </pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410430736">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py"</cite>,
+      line <em class="line">130</em>,
+      in <code class="function">print_exception</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws">    </span>position of the error.</pre>
+<pre class="line before"><span class="ws">    </span>&#34;&#34;&#34;</pre>
+<pre class="line before"><span class="ws">    </span>colorize = kwargs.get(&#34;colorize&#34;, False)</pre>
+<pre class="line before"><span class="ws">    </span>value, tb = _parse_value_tb(exc, value, tb)</pre>
+<pre class="line before"><span class="ws">    </span>te = TracebackException(type(value), value, tb, limit=limit, compact=True)</pre>
+<pre class="line current"><span class="ws">    </span>te.print(file=file, chain=chain, colorize=colorize)
+<span class="ws">    </span>^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span>BUILTIN_EXCEPTION_LIMIT = object()</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span> </pre></div>
+</div>
+
+<li><div class="frame" id="frame-4410430880">
+  <h4>File <cite class="filename">"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py"</cite>,
+      line <em class="line">1462</em>,
+      in <code class="function">print</code></h4>
+  <div class="source library"><pre class="line before"><span class="ws">        </span>&#34;&#34;&#34;Print the result of self.format(chain=chain) to &#39;file&#39;.&#34;&#34;&#34;</pre>
+<pre class="line before"><span class="ws">        </span>colorize = kwargs.get(&#34;colorize&#34;, False)</pre>
+<pre class="line before"><span class="ws">        </span>if file is None:</pre>
+<pre class="line before"><span class="ws">            </span>file = sys.stderr</pre>
+<pre class="line before"><span class="ws">        </span>for line in self.format(chain=chain, colorize=colorize):</pre>
+<pre class="line current"><span class="ws">            </span>print(line, file=file, end=&#34;&#34;)
+<span class="ws">            </span>^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span> </pre>
+<pre class="line after"><span class="ws"></span>_MAX_CANDIDATE_ITEMS = 750</pre>
+<pre class="line after"><span class="ws"></span>_MAX_STRING_SIZE = 40</pre>
+<pre class="line after"><span class="ws"></span>_MOVE_COST = 2</pre></div>
+</div>
+</ul>
+  <blockquote>BrokenPipeError: [Errno 32] Broken pipe
+</blockquote>
+</div>
+
+<div class="plain">
+    <p>
+      This is the Copy/Paste friendly version of the traceback.
+    </p>
+    <textarea cols="50" rows="10" name="code" readonly>Traceback (most recent call last):
+  File &#34;/Users/wangyungang/Desktop/quantification/api.py&#34;, line 612, in backtest
+    results = backtester.run_backtest(ts_code, start_date, end_date, model_type=model_type)
+  File &#34;/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py&#34;, line 461, in run_backtest
+    results = cerebro.run()
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py&#34;, line 1132, in run
+    runstrat = self.runstrategies(iterstrat)
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py&#34;, line 1298, in runstrategies
+    self._runonce(runstrats)
+    ~~~~~~~~~~~~~^^^^^^^^^^^
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py&#34;, line 1700, in _runonce
+    strat._oncepost(dt0)
+    ~~~~~~~~~~~~~~~^^^^^
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/strategy.py&#34;, line 309, in _oncepost
+    self.next()
+    ~~~~~~~~~^^
+  File &#34;/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py&#34;, line 44, in next
+    self._execute_trade(up_prob, consecutive_down, rsi, volume_ratio)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File &#34;/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py&#34;, line 232, in _execute_trade
+    print(f&#34;日期={self.data.datetime.date(0)}, RSI={rsi:.1f}, 量比={volume_ratio:.2f}, 连跌={consecutive_down}, 买入={buy_condition}&#34;)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py&#34;, line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py&#34;, line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask_cors/extension.py&#34;, line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ~^^^^^^^^^^^^^^^^^
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py&#34;, line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py&#34;, line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask_cors/extension.py&#34;, line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ~^^^^^^^^^^^^^^^^^
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py&#34;, line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File &#34;/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py&#34;, line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File &#34;/Users/wangyungang/Desktop/quantification/api.py&#34;, line 622, in backtest
+    traceback.print_exc()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py&#34;, line 208, in print_exc
+    print_exception(sys.exception(), limit=limit, file=file, chain=chain)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py&#34;, line 130, in print_exception
+    te.print(file=file, chain=chain, colorize=colorize)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File &#34;/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py&#34;, line 1462, in print
+    print(line, file=file, end=&#34;&#34;)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+</textarea>
+</div>
+<div class="explanation">
+  The debugger caught an exception in your WSGI application.  You can now
+  look at the traceback which led to the error.  <span class="nojavascript">
+  If you enable JavaScript you can also use additional features such as code
+  execution (if the evalex feature is enabled), automatic pasting of the
+  exceptions and much more.</span>
+</div>
+      <div class="footer">
+        Brought to you by <strong class="arthur">DON'T PANIC</strong>, your
+        friendly Werkzeug powered traceback interpreter.
+      </div>
+    </div>
+
+    <div class="pin-prompt">
+      <div class="inner">
+        <h3>Console Locked</h3>
+        <p>
+          The console is locked and needs to be unlocked by entering the PIN.
+          You can find the PIN printed out on the standard output of your
+          shell that runs the server.
+        <form>
+          <p>PIN:
+            <input type=text name=pin size=14>
+            <input type=submit name=btn value="Confirm Pin">
+        </form>
+      </div>
+    </div>
+  </body>
+</html>
+
+<!--
+
+Traceback (most recent call last):
+  File "/Users/wangyungang/Desktop/quantification/api.py", line 612, in backtest
+    results = backtester.run_backtest(ts_code, start_date, end_date, model_type=model_type)
+  File "/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py", line 461, in run_backtest
+    results = cerebro.run()
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py", line 1132, in run
+    runstrat = self.runstrategies(iterstrat)
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py", line 1298, in runstrategies
+    self._runonce(runstrats)
+    ~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/cerebro.py", line 1700, in _runonce
+    strat._oncepost(dt0)
+    ~~~~~~~~~~~~~~~^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/backtrader/strategy.py", line 309, in _oncepost
+    self.next()
+    ~~~~~~~~~^^
+  File "/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py", line 44, in next
+    self._execute_trade(up_prob, consecutive_down, rsi, volume_ratio)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wangyungang/Desktop/quantification/src/backtest/backtester.py", line 232, in _execute_trade
+    print(f"日期={self.data.datetime.date(0)}, RSI={rsi:.1f}, 量比={volume_ratio:.2f}, 连跌={consecutive_down}, 买入={buy_condition}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ~^^^^^^^^^^^^^^^^^
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+                                                ~^^^^^^^^^^^^^^^^^
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/wangyungang/Library/Python/3.13/lib/python/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/Users/wangyungang/Desktop/quantification/api.py", line 622, in backtest
+    traceback.print_exc()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py", line 208, in print_exc
+    print_exception(sys.exception(), limit=limit, file=file, chain=chain)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py", line 130, in print_exception
+    te.print(file=file, chain=chain, colorize=colorize)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/traceback.py", line 1462, in print
+    print(line, file=file, end="")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+
+-->

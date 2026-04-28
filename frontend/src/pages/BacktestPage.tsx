@@ -51,7 +51,9 @@ const BacktestPage: React.FC = () => {
         // 调用高收益策略回测API
         response = await axios.post('http://localhost:5001/api/backtest_500pct', {
           ts_code: stockCode,
-          model_type: modelType
+          model_type: modelType,
+          start_date: dateRange[0].format('YYYYMMDD'),
+          end_date: dateRange[1].format('YYYYMMDD')
         })
       } else {
         // 调用普通策略回测API
@@ -142,6 +144,60 @@ const BacktestPage: React.FC = () => {
     },
   ]
 
+  // 高收益策略交易信号表格列定义
+  const highReturnSignalColumns = [
+    {
+      title: '日期',
+      dataIndex: 'date',
+      key: 'date',
+    },
+    {
+      title: '交易类型',
+      dataIndex: 'action',
+      key: 'action',
+      render: (action: string) => (
+        <span style={{ color: action === 'BUY' ? 'green' : 'red' }}>
+          {action}
+        </span>
+      ),
+    },
+    {
+      title: '价格',
+      dataIndex: 'price',
+      key: 'price',
+      render: (price: number) => `${price.toFixed(2)}`,
+    },
+    {
+      title: '数量',
+      dataIndex: 'shares',
+      key: 'shares',
+    },
+    {
+      title: '金额',
+      dataIndex: 'cost',
+      key: 'cost',
+      render: (cost: number) => cost ? `${cost.toFixed(2)}` : '-',
+    },
+    {
+      title: '金额',
+      dataIndex: 'revenue',
+      key: 'revenue',
+      render: (revenue: number) => revenue ? `${revenue.toFixed(2)}` : '-',
+    },
+    {
+      title: '资金',
+      dataIndex: 'capital',
+      key: 'capital',
+      render: (capital: number) => `${capital.toFixed(2)}`,
+    },
+    {
+      title: '占比',
+      dataIndex: 'proportion',
+      key: 'proportion',
+      render: (proportion: number) => `${(proportion * 100).toFixed(2)}%`,
+    },
+  ]
+
   return (
     <Card>
       <Title level={2}>回测分析</Title>
@@ -168,7 +224,7 @@ const BacktestPage: React.FC = () => {
           onChange={setStrategyType}
         >
           <Option value="normal">普通策略</Option>
-          <Option value="high_return">高收益策略</Option>
+          {/* <Option value="high_return">高收益策略</Option> */}
         </Select>
         <RangePicker
           value={dateRange}
@@ -189,6 +245,16 @@ const BacktestPage: React.FC = () => {
                 columns={tradeColumns} 
                 dataSource={result.trades.map((trade, index) => ({ ...trade, key: index }))} 
                 pagination={false} 
+              />
+            </>
+          )}
+          {result.signals && result.signals.length > 0 && (
+            <>
+              <Title level={4}>高收益策略交易信号</Title>
+              <Table 
+                columns={highReturnSignalColumns} 
+                dataSource={result.signals.map((signal, index) => ({ ...signal, key: index }))} 
+                pagination={{ pageSize: 10 }} 
               />
             </>
           )}

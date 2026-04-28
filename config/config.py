@@ -22,8 +22,8 @@ FEATURES = ['open', 'high', 'low', 'close', 'volume', 'amount',
             'cci', 'wr', 'bias']
 
 # 回测配置
-INITIAL_CAPITAL = 1000000  # 初始资金
-COMMISSION_RATE = 0.0003   # 佣金率
+INITIAL_CAPITAL = 10000  # 初始资金
+COMMISSION_RATE = 0.0005   # 佣金率（万分之五）
 SLIPPAGE = 0.0001          # 滑点
 
 # 预测配置

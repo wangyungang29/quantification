@@ -97,18 +97,47 @@ class FeatureExtractor:
     def extract_features(self, df):
         """提取所有特征"""
         # 计算各种技术指标
+        print(f"计算MA前的数据行数: {len(df)}")
         df = self.calculate_ma(df)
+        print(f"计算MA后的数据行数: {len(df)}")
+        
+        print(f"计算MACD前的数据行数: {len(df)}")
         df = self.calculate_macd(df)
+        print(f"计算MACD后的数据行数: {len(df)}")
+        
+        print(f"计算RSI前的数据行数: {len(df)}")
         df = self.calculate_rsi(df)
+        print(f"计算RSI后的数据行数: {len(df)}")
+        
+        print(f"计算KDJ前的数据行数: {len(df)}")
         df = self.calculate_kdj(df)
+        print(f"计算KDJ后的数据行数: {len(df)}")
+        
+        print(f"计算布林带前的数据行数: {len(df)}")
         df = self.calculate_bollinger_bands(df)
+        print(f"计算布林带后的数据行数: {len(df)}")
+        
+        print(f"计算CCI前的数据行数: {len(df)}")
         df = self.calculate_cci(df)
+        print(f"计算CCI后的数据行数: {len(df)}")
+        
+        print(f"计算WR前的数据行数: {len(df)}")
         df = self.calculate_wr(df)
+        print(f"计算WR后的数据行数: {len(df)}")
+        
+        print(f"计算BIAS前的数据行数: {len(df)}")
         df = self.calculate_bias(df)
+        print(f"计算BIAS后的数据行数: {len(df)}")
+        
+        print(f"计算额外特征前的数据行数: {len(df)}")
         df = self.calculate_additional_features(df)
+        print(f"计算额外特征后的数据行数: {len(df)}")
         
         # 移除NaN值
-        df = df.dropna()
+        print(f"移除NaN前的数据行数: {len(df)}")
+        # 只移除那些所有列都是NaN值的行
+        df = df.dropna(how='all')
+        print(f"移除NaN后的数据行数: {len(df)}")
         
         return df
     

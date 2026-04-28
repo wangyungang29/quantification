@@ -87,34 +87,6 @@ def predict():
         latest_close = df['close'].iloc[-1]
         latest_date = df['date'].iloc[-1].strftime('%Y-%m-%d')
         
-        # 计算涨跌概率（使用简单的移动平均策略）
-        returns = df['close'].pct_change()
-        if len(returns) > 20:
-            ma20 = df['close'].rolling(window=20).mean().iloc[-1]
-            if latest_close > ma20:
-                up_prob = 0.6
-                flat_prob = 0.2
-                down_prob = 0.2
-                label = 1
-            else:
-                up_prob = 0.2
-                flat_prob = 0.2
-                down_prob = 0.6
-                label = -1
-        else:
-            up_prob = 0.33
-            flat_prob = 0.34
-            down_prob = 0.33
-            label = 0
-        
-        # 计算波动率
-        volatility = returns.std() * np.sqrt(252) if len(returns) > 0 else 0.2
-        
-        # 计算涨跌空间
-        up_space = volatility * np.sqrt(1 / 252)
-        down_space = -up_space
-        expected_price = latest_close * (1 + up_prob * up_space + down_prob * down_space)
-        
         # 计算技术指标
         # 移动平均线
         df['ma5'] = df['close'].rolling(window=5).mean()  # SMA_5
@@ -181,6 +153,92 @@ def predict():
                 print(f"计算金叉死叉时出错: {e}")
                 continue
         
+        # 计算涨跌概率（使用综合技术指标）
+        returns = df['close'].pct_change()
+        volatility = returns.std() * np.sqrt(252) if len(returns) > 0 else 0.2
+        
+        # 综合多个技术指标计算涨跌概率
+        if len(df) > 20:
+            # 移动平均线趋势
+            ma_trend = 0
+            if df['ma5'].iloc[-1] > df['ma20'].iloc[-1] > df['ma60'].iloc[-1]:
+                ma_trend = 0.3  # 强上升趋势
+            elif df['ma5'].iloc[-1] > df['ma20'].iloc[-1]:
+                ma_trend = 0.15  # 弱上升趋势
+            elif df['ma5'].iloc[-1] < df['ma20'].iloc[-1] < df['ma60'].iloc[-1]:
+                ma_trend = -0.3  # 强下降趋势
+            elif df['ma5'].iloc[-1] < df['ma20'].iloc[-1]:
+                ma_trend = -0.15  # 弱下降趋势
+            
+            # RSI指标
+            rsi_score = 0
+            rsi_val = df['rsi'].iloc[-1]
+            if rsi_val < 30:
+                rsi_score = 0.2  # 超卖，可能反弹
+            elif rsi_val > 70:
+                rsi_score = -0.2  # 超买，可能回调
+            
+            # MACD指标
+            macd_score = 0
+            if df['macd'].iloc[-1] > df['macd_signal'].iloc[-1] and df['macd_hist'].iloc[-1] > 0:
+                macd_score = 0.2  # MACD金叉
+            elif df['macd'].iloc[-1] < df['macd_signal'].iloc[-1] and df['macd_hist'].iloc[-1] < 0:
+                macd_score = -0.2  # MACD死叉
+            
+            # 布林带位置
+            boll_score = 0
+            boll_percent = (df['close'].iloc[-1] - df['boll_lower'].iloc[-1]) / (df['boll_upper'].iloc[-1] - df['boll_lower'].iloc[-1])
+            if boll_percent < 0.2:
+                boll_score = 0.15  # 接近下轨，可能反弹
+            elif boll_percent > 0.8:
+                boll_score = -0.15  # 接近上轨，可能回调
+            
+            # 成交量变化
+            volume_score = 0
+            if len(df) > 5:
+                volume_ma5 = df['volume'].rolling(5).mean().iloc[-1]
+                if df['volume'].iloc[-1] > 1.5 * volume_ma5:
+                    volume_score = 0.1  # 成交量放大
+            
+            # 综合得分
+            total_score = ma_trend + rsi_score + macd_score + boll_score + volume_score
+            
+            # 基础概率
+            base_up_prob = 0.5
+            
+            # 根据综合得分调整概率
+            up_prob = base_up_prob + total_score
+            down_prob = 1 - up_prob - 0.1  # 预留10%的横盘概率
+            flat_prob = 0.1
+            
+            # 确保概率在合理范围内
+            up_prob = max(0.1, min(0.9, up_prob))
+            down_prob = max(0.1, min(0.8, down_prob))
+            flat_prob = max(0.1, min(0.3, flat_prob))
+            
+            # 归一化概率
+            total = up_prob + down_prob + flat_prob
+            up_prob /= total
+            down_prob /= total
+            flat_prob /= total
+            
+            # 确定标签
+            if up_prob > down_prob:
+                label = 1
+            else:
+                label = -1
+        else:
+            # 数据不足时的默认概率
+            up_prob = 0.33
+            flat_prob = 0.34
+            down_prob = 0.33
+            label = 0
+        
+        # 计算涨跌空间
+        up_space = volatility * np.sqrt(1 / 252)
+        down_space = -up_space
+        expected_price = latest_close * (1 + up_prob * up_space + down_prob * down_space)
+        
         # 为历史数据生成交易信号
         # 使用模型预测来生成买入和卖出信号
         df['buy_signal'] = 0.0
@@ -189,11 +247,11 @@ def predict():
         df['sell_price'] = 0.0
         df['buy_probability'] = 0.0
         df['sell_probability'] = 0.0
-        
-        # 高收益策略信号
-        df['high_return_action'] = "HOLD"
-        df['high_return_position'] = 0.0
-        df['super_trend_prob'] = 0.0
+        df['pred_golden_cross'] = 0
+        df['pred_golden_cross_proba'] = 0.0
+        df['pred_death_cross'] = 0
+        df['pred_death_cross_proba'] = 0.0
+        df['pred_close'] = 0.0
         
         # 使用模型预测金叉和死叉（必须在构建history_data之前调用）
         try:
@@ -204,7 +262,6 @@ def predict():
             golden_model_path = f"src/models/saved/{model_type}_golden_cross_model.joblib"
             death_model_path = f"src/models/saved/{model_type}_death_cross_model.joblib"
             price_model_path = f"src/models/saved/{model_type}_price_prediction_model.joblib"
-            high_return_model_path = f"src/models/saved/{model_type}_500pct_model.joblib"
             
             import os
             if not os.path.exists(golden_model_path) or not os.path.exists(death_model_path):
@@ -222,15 +279,6 @@ def predict():
                 except Exception as e:
                     print(f"模型训练失败: {e}")
             
-            # 训练高收益模型
-            if not os.path.exists(high_return_model_path):
-                print(f"未找到高收益模型，开始训练...")
-                try:
-                    trainer.train_and_evaluate_500pct(df, model_type=model_type)
-                    print('高收益模型训练完成')
-                except Exception as e:
-                    print(f"高收益模型训练失败: {e}")
-            
             # 预测金叉和死叉
             df = trainer.predict_golden_death_cross(df, model_type=model_type, threshold=0.5)
             print(f"成功预测金叉和死叉")
@@ -239,22 +287,11 @@ def predict():
             df = trainer.predict_buy_sell_points(df, model_type=model_type, atr_multiplier=1.0)
             print(f"成功预测买卖点")
             
-            # 生成高收益策略信号
-            try:
-                high_return_model = trainer.load_model(f"{model_type}_500pct_model")
-                if high_return_model is not None:
-                    high_return_signal = trainer.generate_500pct_signal(high_return_model, df)
-                    df.loc[df.index[-1], 'high_return_action'] = high_return_signal['action']
-                    df.loc[df.index[-1], 'high_return_position'] = high_return_signal['position']
-                    df.loc[df.index[-1], 'super_trend_prob'] = high_return_signal['super_trend_prob']
-                    print(f"高收益策略信号: {high_return_signal['action']}")
-            except Exception as e:
-                print(f"生成高收益策略信号失败: {e}")
-            
             # 为历史数据生成模型交易信号
-            # 加载金叉预测模型用于生成信号
+            # 加载金叉预测模型和死叉预测模型用于生成信号
             golden_model = trainer.load_model(f"{model_type}_golden_cross_model")
-            if golden_model is not None:
+            death_model = trainer.load_model(f"{model_type}_death_cross_model")
+            if golden_model is not None or death_model is not None:
                 print("使用模型为历史数据生成交易信号...")
                 
                 # 首先为整个df计算特征（包括连续下降天数等）
@@ -283,40 +320,119 @@ def predict():
                         # 创建特征（用于模型预测）
                         df_features, feature_cols = trainer.create_features(df.iloc[:i+1])
                         if len(df_features) > 0:
-                            # 只使用模型训练时使用的特征
-                            model_features = [col for col in feature_cols if col in golden_model.feature_names_in_]
-                            if len(model_features) > 0:
-                                # 获取当前数据
-                                current_data = df_features.iloc[-1:][model_features]
-                                # 预测概率
-                                y_prob = golden_model.predict_proba(current_data)[0]
-                                buy_probability = y_prob[1]  # 正类（金叉/上涨）概率
-                                sell_probability = 1 - buy_probability  # 负类概率
-                                
-                                # 获取当前数据的连续下降天数和其他指标（从预先计算的df_features_full中获取）
-                                # 这样确保使用的是基于t-1之前数据统计的连续下降天数
-                                consecutive_down = df_features_full.loc[current_idx, 'consecutive_down'] if 'consecutive_down' in df_features_full.columns else 0
-                                rsi = df_features_full.loc[current_idx, 'rsi'] if 'rsi' in df_features_full.columns else 50
-                                volume_ratio = df_features_full.loc[current_idx, 'vol/Vol_MA5'] if 'vol/Vol_MA5' in df_features_full.columns else 1.0
-                                
-                                # 应用实战应用建议的买入规则
-                                buy_signal = False
-                                if consecutive_down <= 3 and buy_probability > 0.6:
-                                    if (rsi < 30 or volume_ratio > 1.5) and consecutive_down <= 5:
-                                        buy_signal = True
-                                
-                                # 卖出信号：当连续下降天数>5天或预测下跌概率>60%时
-                                sell_signal = sell_probability > 0.6 or consecutive_down > 5
-                                
-                                # 更新信号
-                                df.loc[df.index[i], 'buy_signal'] = 1.0 if buy_signal else 0.0
-                                df.loc[df.index[i], 'sell_signal'] = 1.0 if sell_signal else 0.0
-                                df.loc[df.index[i], 'buy_probability'] = buy_probability
-                                df.loc[df.index[i], 'sell_probability'] = sell_probability
-                                
-                                # 调试输出
-                                # if i % 10 == 0 or consecutive_down > 0:  # 每10行或连续下降天数>0时输出调试信息
-                                    # print(f"DEBUG 第{i}行 (日期{df.iloc[i]['date']}): consecutive_down={consecutive_down}, rsi={rsi:.2f}, volume_ratio={volume_ratio:.2f}, buy_prob={buy_probability:.2f}, buy_signal={buy_signal}")
+                            # 预测金叉概率
+                            buy_probability = 0.0
+                            if golden_model is not None:
+                                # 只使用模型训练时使用的特征
+                                golden_model_features = [col for col in feature_cols if col in golden_model.feature_names_in_]
+                                if len(golden_model_features) > 0:
+                                    # 获取当前数据
+                                    current_data = df_features.iloc[-1:][golden_model_features]
+                                    # 预测概率
+                                    y_prob = golden_model.predict_proba(current_data)[0]
+                                    buy_probability = y_prob[1]  # 正类（金叉/上涨）概率
+                            
+                            # 预测死叉概率
+                            death_probability = 0.0
+                            if death_model is not None:
+                                # 只使用模型训练时使用的特征
+                                death_model_features = [col for col in feature_cols if col in death_model.feature_names_in_]
+                                if len(death_model_features) > 0:
+                                    # 获取当前数据
+                                    current_data = df_features.iloc[-1:][death_model_features]
+                                    # 预测概率
+                                    death_prob = death_model.predict_proba(current_data)[0]
+                                    death_probability = death_prob[1]  # 正类（死叉/下跌）概率
+                                    # 增加一些基于技术指标的死叉概率调整
+                                    if i < len(df) - 1:
+                                        rsi_val = df['rsi'].iloc[i]
+                                        macd_val = df['macd'].iloc[i]
+                                        macd_signal = df['macd_signal'].iloc[i]
+                                        ma5 = df['ma5'].iloc[i]
+                                        ma20 = df['ma20'].iloc[i]
+                                        # 当RSI超买、MACD死叉、MA5下穿MA20时，增加死叉概率
+                                        if rsi_val > 70:
+                                            death_probability = max(death_probability, 0.7)
+                                        if macd_val < macd_signal and macd_val < 0:
+                                            death_probability = max(death_probability, 0.6)
+                                        if ma5 < ma20:
+                                            death_probability = max(death_probability, 0.5)
+                            # 如果模型预测概率仍然很低，使用基于技术指标的死叉概率
+                            if death_probability < 0.1:
+                                if i < len(df) - 1:
+                                    rsi_val = df['rsi'].iloc[i]
+                                    macd_val = df['macd'].iloc[i]
+                                    macd_signal = df['macd_signal'].iloc[i]
+                                    ma5 = df['ma5'].iloc[i]
+                                    ma20 = df['ma20'].iloc[i]
+                                    # 基于技术指标计算死叉概率
+                                    tech_death_prob = 0.0
+                                    if rsi_val > 70:
+                                        tech_death_prob += 0.3
+                                    if macd_val < macd_signal and macd_val < 0:
+                                        tech_death_prob += 0.3
+                                    if ma5 < ma20:
+                                        tech_death_prob += 0.2
+                                    if consecutive_down > 3:
+                                        tech_death_prob += 0.2
+                                    death_probability = max(death_probability, tech_death_prob)
+                            
+                            sell_probability = max(1 - buy_probability, death_probability)
+                            
+                            # 获取当前数据的连续下降天数和其他指标（从预先计算的df_features_full中获取）
+                            # 这样确保使用的是基于t-1之前数据统计的连续下降天数
+                            consecutive_down = df_features_full.loc[current_idx, 'consecutive_down'] if 'consecutive_down' in df_features_full.columns else 0
+                            rsi = df_features_full.loc[current_idx, 'rsi'] if 'rsi' in df_features_full.columns else 50
+                            volume_ratio = df_features_full.loc[current_idx, 'vol/Vol_MA5'] if 'vol/Vol_MA5' in df_features_full.columns else 1.0
+                            
+                            # 应用实战应用建议的买入规则
+                            buy_signal = False
+                            # 更严格的买入条件，结合多个指标
+                            if consecutive_down <= 3 and buy_probability > 0.6:
+                                # RSI超卖或成交量放大，且连续下跌天数较少
+                                if (rsi < 30 or volume_ratio > 1.5) and consecutive_down <= 5:
+                                    # 额外的技术指标验证
+                                    if i < len(df) - 1:
+                                        current_price = df['close'].iloc[i]
+                                        ma5 = df['ma5'].iloc[i]
+                                        ma20 = df['ma20'].iloc[i]
+                                        rsi_val = df['rsi'].iloc[i]
+                                        macd_val = df['macd'].iloc[i]
+                                        macd_signal = df['macd_signal'].iloc[i]
+                                        
+                                        # 综合技术指标验证
+                                        if (ma5 > ma20 and rsi_val < 50 and macd_val > macd_signal) or \
+                                           (volume_ratio > 2.0 and rsi_val < 40):
+                                            buy_signal = True
+                            
+                            # 卖出信号：更合理的卖出条件
+                            sell_signal = False
+                            # 当连续下降天数>5天或预测下跌概率>60%时
+                            if sell_probability > 0.6 or consecutive_down > 5:
+                                sell_signal = True
+                            # 当RSI超买或MACD死叉时
+                            elif i < len(df) - 1:
+                                rsi_val = df['rsi'].iloc[i]
+                                macd_val = df['macd'].iloc[i]
+                                macd_signal = df['macd_signal'].iloc[i]
+                                if rsi_val > 70 or (macd_val < macd_signal and macd_val < 0):
+                                    sell_signal = True
+                            
+                            # 更新信号
+                            df.loc[df.index[i], 'buy_signal'] = 1.0 if buy_signal else 0.0
+                            df.loc[df.index[i], 'sell_signal'] = 1.0 if sell_signal else 0.0
+                            df.loc[df.index[i], 'buy_probability'] = buy_probability
+                            df.loc[df.index[i], 'sell_probability'] = sell_probability
+                            # 保存死叉预测概率
+                            df.loc[df.index[i], 'pred_death_cross_proba'] = death_probability
+                            df.loc[df.index[i], 'pred_death_cross'] = 1 if death_probability > 0.5 else 0
+                            # 保存金叉预测概率
+                            df.loc[df.index[i], 'pred_golden_cross_proba'] = buy_probability
+                            df.loc[df.index[i], 'pred_golden_cross'] = 1 if buy_probability > 0.5 else 0
+                            
+                            # 调试输出
+                            # if i % 10 == 0 or consecutive_down > 0:  # 每10行或连续下降天数>0时输出调试信息
+                                # print(f"DEBUG 第{i}行 (日期{df.iloc[i]['date']}): consecutive_down={consecutive_down}, rsi={rsi:.2f}, volume_ratio={volume_ratio:.2f}, buy_prob={buy_probability:.2f}, death_prob={death_probability:.2f}, buy_signal={buy_signal}, sell_signal={sell_signal}")
                     except Exception as e:
                         print(f"为历史数据生成交易信号时出错 (第{i}行): {e}")
                         import traceback
@@ -350,9 +466,6 @@ def predict():
             df['sell_price'] = 0.0
             df['buy_probability'] = 0.0
             df['sell_probability'] = 0.0
-            df['high_return_action'] = "HOLD"
-            df['high_return_position'] = 0.0
-            df['super_trend_prob'] = 0.0
         
         # 基本面数据功能已删除（需要Tushare 2000积分以上权限）
         fundamentals = {}
@@ -406,10 +519,7 @@ def predict():
                     'pred_death_cross': bool(float(row['pred_death_cross'])) if 'pred_death_cross' in row else False,
                     'buy_probability': float(row['buy_probability']) if 'buy_probability' in row else 0.0,
                     'sell_probability': float(row['sell_probability']) if 'sell_probability' in row else 0.0,
-                    'pred_death_cross_proba': float(row['pred_death_cross_proba']) if 'pred_death_cross_proba' in row else 0.0,
-                    'high_return_action': row['high_return_action'] if 'high_return_action' in row else "HOLD",
-                    'high_return_position': float(row['high_return_position']) if 'high_return_position' in row else 0.0,
-                    'super_trend_prob': float(row['super_trend_prob']) if 'super_trend_prob' in row else 0.0
+                    'pred_death_cross_proba': float(row['pred_death_cross_proba']) if 'pred_death_cross_proba' in row else 0.0
                 }
                 history_data.append(history_item)
         
@@ -441,28 +551,12 @@ def predict():
         if not buy_signal and not sell_signal:
             message.append("📊 预测涨跌概率均较低，建议观望")
         
-        # 获取高收益策略信号
-        high_return_action = df['high_return_action'].iloc[-1] if 'high_return_action' in df.columns else "HOLD"
-        high_return_position = df['high_return_position'].iloc[-1] if 'high_return_position' in df.columns else 0.0
-        super_trend_prob = df['super_trend_prob'].iloc[-1] if 'super_trend_prob' in df.columns else 0.0
-        
-        # 添加高收益策略消息
-        if high_return_action == "HEAVY_BUY":
-            message.append(f"🚀 高收益策略：强烈买入，建议仓位 {high_return_position:.1%}")
-        elif high_return_action == "BUY":
-            message.append(f"📈 高收益策略：买入，建议仓位 {high_return_position:.1%}")
-        elif high_return_action == "HOLD":
-            message.append(f"📊 高收益策略：观望")
-        
         trading_signals = {
             'buy_signal': buy_signal,
             'sell_signal': sell_signal,
             'buy_probability': float(buy_probability),
             'sell_probability': float(sell_probability),
-            'message': ' '.join(message),
-            'high_return_action': high_return_action,
-            'high_return_position': float(high_return_position),
-            'super_trend_prob': float(super_trend_prob)
+            'message': ' '.join(message)
         }
         
         # 构建预测结果
@@ -528,76 +622,6 @@ def backtest():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/backtest_500pct', methods=['POST'])
-def backtest_500pct():
-    """回测高收益策略"""
-    data = request.json
-    ts_code = data.get('ts_code')
-    model_type = data.get('model_type', 'xgboost')
-    
-    try:
-        # 直接获取tushare数据
-        import tushare as ts
-        
-        # 直接使用正确的token
-        TUSHARE_TOKEN = '68e431d47c0319d7bdea7cd1daf164392d22c8a9216d99476354be78'
-        
-        # 初始化tushare
-        pro = ts.pro_api(TUSHARE_TOKEN)
-        
-        # 获取股票数据
-        import datetime
-        today = datetime.datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=1000)).strftime('%Y%m%d')  # 多拿数据
-        
-        print(f"正在获取股票 {ts_code} 的数据，时间范围：{start_date} 到 {today}")
-        df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=today)
-        
-        if df.empty:
-            print(f"无法获取股票 {ts_code} 的数据")
-            return jsonify({
-                'error': '无法获取股票数据',
-                'ts_code': ts_code
-            }), 404
-        
-        # 按日期排序
-        df = df.sort_values('trade_date').reset_index(drop=True)
-        
-        # 重命名列
-        df.rename(columns={
-            'trade_date': 'date',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'vol': 'volume',
-            'amount': 'amount'
-        }, inplace=True)
-        
-        # 转换日期格式
-        df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
-        
-        # 使用ModelTrainer进行高收益策略回测
-        from src.models.model_trainer import ModelTrainer
-        trainer = ModelTrainer()
-        
-        # 删除非数值列，避免模型训练错误
-        if 'ts_code' in df.columns:
-            df = df.drop('ts_code', axis=1)
-        
-        # 训练高收益模型
-        model, metrics = trainer.train_and_evaluate_500pct(df, model_type=model_type)
-        
-        # 回测结果
-        backtest_result = metrics['backtest']
-        
-        return jsonify(backtest_result)
-    except Exception as e:
-        print(f"高收益策略回测失败: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/api/fetch', methods=['POST'])
 def fetch_data():
     """获取股票数据"""
@@ -633,72 +657,6 @@ def train_model():
         
         return jsonify({'message': '模型训练完成'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/train_500pct', methods=['POST'])
-def train_500pct_model():
-    """训练高收益模型"""
-    data = request.json
-    ts_code = data.get('ts_code')
-    model_type = data.get('model_type', 'xgboost')
-    
-    try:
-        # 直接获取tushare数据
-        import tushare as ts
-        
-        # 直接使用正确的token
-        TUSHARE_TOKEN = '68e431d47c0319d7bdea7cd1daf164392d22c8a9216d99476354be78'
-        
-        # 初始化tushare
-        pro = ts.pro_api(TUSHARE_TOKEN)
-        
-        # 获取股票数据
-        import datetime
-        today = datetime.datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=1000)).strftime('%Y%m%d')  # 多拿数据
-        
-        print(f"正在获取股票 {ts_code} 的数据，时间范围：{start_date} 到 {today}")
-        df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=today)
-        
-        if df.empty:
-            print(f"无法获取股票 {ts_code} 的数据")
-            return jsonify({
-                'error': '无法获取股票数据',
-                'ts_code': ts_code
-            }), 404
-        
-        # 按日期排序
-        df = df.sort_values('trade_date').reset_index(drop=True)
-        
-        # 重命名列
-        df.rename(columns={
-            'trade_date': 'date',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'vol': 'volume',
-            'amount': 'amount'
-        }, inplace=True)
-        
-        # 转换日期格式
-        df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
-        
-        # 使用ModelTrainer训练高收益模型
-        from src.models.model_trainer import ModelTrainer
-        trainer = ModelTrainer()
-        
-        # 训练高收益模型
-        model, metrics = trainer.train_and_evaluate_500pct(df, model_type=model_type)
-        
-        return jsonify({
-            'message': '高收益模型训练完成',
-            'metrics': metrics
-        })
-    except Exception as e:
-        print(f"高收益模型训练失败: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/history', methods=['GET'])
