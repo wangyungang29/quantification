@@ -8,24 +8,36 @@ const { Option } = Select
 const { RangePicker } = DatePicker
 
 interface Trade {
-  date: string
-  action: string
-  price: number
-  shares: number
-  amount: number
-  commission: number
-  total: number
+  buy_date: string
+  buy_price: number
+  buy_signal_type: string
+  sell_date: string | null
+  sell_price: number | null
+  sell_reason: string | null
+  quantity: number
+  stop_loss: number
+  take_profit: number
+  profit: number | null
+  profit_ratio: number | null
 }
 
 interface BacktestResult {
+  ts_code: string
+  start_date: string
+  end_date: string
   initial_capital: number
   final_value: number
-  total_return: number
+  profit: number
+  profit_ratio: number
   sharpe_ratio: number
   max_drawdown: number
-  average_return: number
+  total_return: number
+  annual_return: number
   total_trades: number
+  win_trades: number
+  lose_trades: number
   win_rate: number
+  model_type: string
   trades: Trade[]
 }
 
@@ -49,7 +61,7 @@ const BacktestPage: React.FC = () => {
       let response
       if (strategyType === 'high_return') {
         // 调用高收益策略回测API
-        response = await axios.post('http://localhost:5001/api/backtest_500pct', {
+        response = await axios.post('http://localhost:5001/api/backtest', {
           ts_code: stockCode,
           model_type: modelType,
           start_date: dateRange[0].format('YYYYMMDD'),
@@ -59,7 +71,7 @@ const BacktestPage: React.FC = () => {
         // 调用普通策略回测API
         response = await axios.post('http://localhost:5001/api/backtest', {
           ts_code: stockCode,
-          model_type: modelType,
+          model_type: 'chan',
           start_date: dateRange[0].format('YYYYMMDD'),
           end_date: dateRange[1].format('YYYYMMDD')
         })
@@ -86,117 +98,108 @@ const BacktestPage: React.FC = () => {
   ]
 
   const data = result ? [
-    { key: '1', name: '初始资金', value: `${result.initial_capital.toFixed(2)}` },
-    { key: '2', name: '最终资金', value: `${result.final_value.toFixed(2)}` },
-    { key: '3', name: '总收益率', value: `${(result.total_return * 100).toFixed(2)}%` },
-    // { key: '4', name: '夏普比率', value: `${result.sharpe_ratio.toFixed(2)}` },
-    { key: '5', name: '最大回撤', value: `${(result.max_drawdown * 100).toFixed(2)}%` },
-    { key: '6', name: '平均收益率', value: `${(result.average_return * 100).toFixed(2)}%` },
-    { key: '7', name: '总交易次数', value: `${result.total_trades}` },
-    { key: '8', name: '胜率', value: `${(result.win_rate * 100).toFixed(2)}%` },
+    { key: '1', name: '股票代码', value: `${result.ts_code}` },
+    { key: '2', name: '初始资金', value: `${result.initial_capital.toFixed(2)}` },
+    { key: '3', name: '最终资金', value: `${result.final_value.toFixed(2)}` },
+    { key: '4', name: '总收益', value: `${result.profit >= 0 ? '+' : ''}${result.profit.toFixed(2)}` },
+    { key: '5', name: '收益率', value: `${result.profit_ratio >= 0 ? '+' : ''}${result.profit_ratio.toFixed(2)}%` },
+    { key: '6', name: '总收益率', value: `${result.total_return >= 0 ? '+' : ''}${result.total_return.toFixed(2)}%` },
+    { key: '7', name: '年度收益', value: `${result.annual_return >= 0 ? '+' : ''}${result.annual_return.toFixed(2)}%` },
+    { key: '8', name: '夏普比率', value: `${result.sharpe_ratio.toFixed(2)}` },
+    { key: '9', name: '最大回撤', value: `${result.max_drawdown.toFixed(2)}%` },
+    { key: '10', name: '总交易次数', value: `${result.total_trades}` },
+    { key: '11', name: '盈利交易', value: `${result.win_trades}` },
+    { key: '12', name: '亏损交易', value: `${result.lose_trades}` },
+    { key: '13', name: '胜率', value: `${result.win_rate.toFixed(2)}%` },
+    { key: '14', name: '模型类型', value: `${result.model_type}` },
   ] : []
 
   // 交易记录表格列定义
   const tradeColumns = [
     {
-      title: '日期',
-      dataIndex: 'date',
-      key: 'date',
+      title: '买入日期',
+      dataIndex: 'buy_date',
+      key: 'buy_date',
     },
     {
-      title: '交易类型',
-      dataIndex: 'action',
-      key: 'action',
-      render: (action: string) => (
-        <span style={{ color: action === '买入' ? 'green' : 'red' }}>
-          {action}
+      title: '买入价格',
+      dataIndex: 'buy_price',
+      key: 'buy_price',
+      render: (price: number) => `${price.toFixed(2)}`,
+    },
+    {
+      title: '信号类型',
+      dataIndex: 'buy_signal_type',
+      key: 'buy_signal_type',
+      render: (type: string) => (
+        <span style={{ color: type.includes('买') ? 'green' : 'red' }}>
+          {type}
         </span>
       ),
     },
     {
-      title: '价格',
-      dataIndex: 'price',
-      key: 'price',
-      render: (price: number) => `${price.toFixed(2)}`,
+      title: '卖出日期',
+      dataIndex: 'sell_date',
+      key: 'sell_date',
+      render: (date: string | null) => date || '-',
+    },
+    {
+      title: '卖出价格',
+      dataIndex: 'sell_price',
+      key: 'sell_price',
+      render: (price: number | null) => price ? `${price.toFixed(2)}` : '-',
+    },
+    {
+      title: '卖出原因',
+      dataIndex: 'sell_reason',
+      key: 'sell_reason',
+      render: (reason: string | null) => {
+        if (!reason) return '-'
+        const color = reason === '止盈' ? 'green' : reason === '止损' ? 'red' : 'orange'
+        return <span style={{ color }}>{reason}</span>
+      },
     },
     {
       title: '数量',
-      dataIndex: 'shares',
-      key: 'shares',
+      dataIndex: 'quantity',
+      key: 'quantity',
     },
     {
-      title: '金额',
-      dataIndex: 'amount',
-      key: 'amount',
-      render: (amount: number) => `${amount.toFixed(2)}`,
+      title: '止损位',
+      dataIndex: 'stop_loss',
+      key: 'stop_loss',
+      render: (price: number) => `${price.toFixed(2)}`,
     },
     {
-      title: '手续费',
-      dataIndex: 'commission',
-      key: 'commission',
-      render: (commission: number) => `${commission.toFixed(2)}`,
+      title: '止盈位',
+      dataIndex: 'take_profit',
+      key: 'take_profit',
+      render: (price: number) => `${price.toFixed(2)}`,
     },
     {
-      title: '总计',
-      dataIndex: 'total',
-      key: 'total',
-      render: (total: number) => `${total.toFixed(2)}`,
+      title: '利润',
+      dataIndex: 'profit',
+      key: 'profit',
+      render: (profit: number | null) => {
+        if (profit === null) return '-'
+        return <span style={{ color: profit >= 0 ? 'green' : 'red' }}>
+          {profit >= 0 ? '+' : ''}{profit.toFixed(2)}
+        </span>
+      },
+    },
+    {
+      title: '利润率',
+      dataIndex: 'profit_ratio',
+      key: 'profit_ratio',
+      render: (ratio: number | null) => {
+        if (ratio === null) return '-'
+        return <span style={{ color: ratio >= 0 ? 'green' : 'red' }}>
+          {ratio >= 0 ? '+' : ''}{ratio.toFixed(2)}%
+        </span>
+      },
     },
   ]
 
-  // 高收益策略交易信号表格列定义
-  const highReturnSignalColumns = [
-    {
-      title: '日期',
-      dataIndex: 'date',
-      key: 'date',
-    },
-    {
-      title: '交易类型',
-      dataIndex: 'action',
-      key: 'action',
-      render: (action: string) => (
-        <span style={{ color: action === 'BUY' ? 'green' : 'red' }}>
-          {action}
-        </span>
-      ),
-    },
-    {
-      title: '价格',
-      dataIndex: 'price',
-      key: 'price',
-      render: (price: number) => `${price.toFixed(2)}`,
-    },
-    {
-      title: '数量',
-      dataIndex: 'shares',
-      key: 'shares',
-    },
-    {
-      title: '金额',
-      dataIndex: 'cost',
-      key: 'cost',
-      render: (cost: number) => cost ? `${cost.toFixed(2)}` : '-',
-    },
-    {
-      title: '金额',
-      dataIndex: 'revenue',
-      key: 'revenue',
-      render: (revenue: number) => revenue ? `${revenue.toFixed(2)}` : '-',
-    },
-    {
-      title: '资金',
-      dataIndex: 'capital',
-      key: 'capital',
-      render: (capital: number) => `${capital.toFixed(2)}`,
-    },
-    {
-      title: '占比',
-      dataIndex: 'proportion',
-      key: 'proportion',
-      render: (proportion: number) => `${(proportion * 100).toFixed(2)}%`,
-    },
-  ]
 
   return (
     <Card>
@@ -245,16 +248,6 @@ const BacktestPage: React.FC = () => {
                 columns={tradeColumns} 
                 dataSource={result.trades.map((trade, index) => ({ ...trade, key: index }))} 
                 pagination={false} 
-              />
-            </>
-          )}
-          {result.signals && result.signals.length > 0 && (
-            <>
-              <Title level={4}>高收益策略交易信号</Title>
-              <Table 
-                columns={highReturnSignalColumns} 
-                dataSource={result.signals.map((signal, index) => ({ ...signal, key: index }))} 
-                pagination={{ pageSize: 10 }} 
               />
             </>
           )}
