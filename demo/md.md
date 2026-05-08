@@ -28,7 +28,7 @@
 三、关键参数建议（写入代码）
 # 示例参数
 PARAMS = {
-    "min_bars_pen": 5,        # 一笔最少K线数
+    "min_bars_pen": 3,        # 一笔最少K线数（缠论理论最小值，太高会导致近期数据无信号）
     "segment_strength": 3,    # 线段破坏所需笔数
     "central_overlap": 3,     # 中枢最小重叠段
     "macd_threshold": 0.5,    # 背驰判定阈值

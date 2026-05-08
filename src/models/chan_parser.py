@@ -1,6 +1,7 @@
 """
 缠论解析器模块
 基于缠论（Chan Theory）实现完整的行情分析功能
+日线级别优化版：严格过滤中继底、二买确认、均线过滤
 """
 
 import pandas as pd
@@ -20,13 +21,13 @@ class SignalType(Enum):
 
 
 class ChanParser:
-    """缠论解析器"""
+    """缠论解析器（日线级别优化版）"""
 
     def __init__(self, params: Dict = None):
         """初始化缠论解析器"""
         if params is None:
             params = self._default_params()
-        
+
         self.params = params
         self.bars = None
         self.std_bars = None
@@ -35,17 +36,94 @@ class ChanParser:
         self.segments = None
         self.zhongshus = None
         self.signals = None
+        self.ma5 = None
+        self.ma10 = None
+        self.price_channels = None
 
     def _default_params(self) -> Dict:
         """默认参数"""
         return {
-            "min_bars_pen": 3,        # 一笔最少K线数（降低要求）
-            "segment_strength": 2,    # 线段破坏所需笔数（降低要求）
-            "central_overlap": 3,     # 中枢最小重叠段
-            "macd_threshold": 0.3,    # 背驰判定阈值（降低要求）
-            "include_gap": False,     # 是否包含跳空缺口
-            "pen_break_ratio": 0.3,   # 笔破坏比例（降低要求）
+            "min_bars_pen": 3,
+            "segment_strength": 2,
+            "central_overlap": 3,
+            "macd_threshold": 0.5,
+            "include_gap": False,
+            "pen_break_ratio": 0.5,
+            "stop_loss_ratio": 0.08,
+            "ma_short": 5,
+            "ma_long": 10,
         }
+
+    def _calculate_ma(self, df: pd.DataFrame) -> Tuple[Optional[pd.Series], Optional[pd.Series]]:
+        """计算均线"""
+        if df is None or len(df) < self.params['ma_long']:
+            return None, None
+
+        ma_short = df['close'].rolling(window=self.params['ma_short']).mean()
+        ma_long = df['close'].rolling(window=self.params['ma_long']).mean()
+
+        self.ma5 = ma_short
+        self.ma10 = ma_long
+
+        return ma_short, ma_long
+
+    def _check_price_channel(self, df: pd.DataFrame, current_idx: int, lookback: int = 20) -> Dict:
+        """检查价格通道，判断是否处于下降通道"""
+        if df is None or current_idx < lookback:
+            return {'is_downtrend': False, 'channel_high': 0, 'channel_low': 0}
+
+        start_idx = max(0, current_idx - lookback)
+        segment = df.iloc[start_idx:current_idx + 1].copy()
+
+        if len(segment) < 5:
+            return {'is_downtrend': False, 'channel_high': 0, 'channel_low': 0}
+
+        highs = segment['high'].values
+        lows = segment['low'].values
+
+        highs_trend = np.polyfit(range(len(highs)), highs, 1)[0]
+        lows_trend = np.polyfit(range(len(lows)), lows, 1)[0]
+
+        is_downtrend = highs_trend < 0 and lows_trend < 0
+
+        channel_high = max(highs[-5:]) if len(highs) >= 5 else max(highs)
+        channel_low = min(lows[-5:]) if len(lows) >= 5 else min(lows)
+
+        self.price_channels = {'is_downtrend': is_downtrend, 'channel_high': channel_high, 'channel_low': channel_low}
+
+        return self.price_channels
+
+    def _check_ma_filter(self, current_price: float, current_idx: int) -> bool:
+        """检查均线过滤：收盘价必须站上短期或长期均线"""
+        if self.ma5 is None or self.ma10 is None:
+            return True
+
+        if current_idx >= len(self.ma5) or current_idx >= len(self.ma10):
+            return True
+
+        ma5_val = self.ma5.iloc[current_idx]
+        ma10_val = self.ma10.iloc[current_idx]
+
+        if pd.isna(ma5_val) or pd.isna(ma10_val):
+            return True
+
+        return current_price >= ma5_val or current_price >= ma10_val
+
+    def _check_ma_filter_at_idx(self, idx: int) -> bool:
+        """检查特定索引处的均线状态"""
+        if self.ma5 is None or self.ma10 is None:
+            return True
+
+        if idx >= len(self.ma5) or idx >= len(self.ma10):
+            return True
+
+        ma5_val = self.ma5.iloc[idx]
+        ma10_val = self.ma10.iloc[idx]
+
+        if pd.isna(ma5_val) or pd.isna(ma10_val):
+            return True
+
+        return True
 
     def process_kline(self, df: pd.DataFrame) -> pd.DataFrame:
         """处理K线包含关系，生成标准化K线"""
@@ -55,6 +133,8 @@ class ChanParser:
         self.bars = df.copy()
         self.bars.reset_index(drop=True, inplace=True)
 
+        self._calculate_ma(df)
+
         std_bars = []
         current_high = df.iloc[0]['high']
         current_low = df.iloc[0]['low']
@@ -63,7 +143,7 @@ class ChanParser:
 
         for i in range(1, len(df)):
             bar = df.iloc[i]
-            
+
             if bar['high'] <= current_high and bar['low'] >= current_low:
                 current_high = max(current_high, bar['high'])
                 current_low = min(current_low, bar['low'])
@@ -100,7 +180,7 @@ class ChanParser:
             return []
 
         fengs = []
-        
+
         for i in range(1, len(self.std_bars) - 1):
             prev = self.std_bars.iloc[i-1]
             curr = self.std_bars.iloc[i]
@@ -153,7 +233,7 @@ class ChanParser:
                         'bars_count': feng['index'] - start_feng['index']
                     }
                     pens.append(pen)
-                
+
                 start_feng = feng
 
         self.pens = pens
@@ -176,7 +256,7 @@ class ChanParser:
 
     def generate_segments(self) -> List[Dict]:
         """由笔构成线段"""
-        if self.pens is None or len(self.pens) < 2:  # 降低要求
+        if self.pens is None or len(self.pens) < 2:
             return []
 
         segments = []
@@ -249,7 +329,7 @@ class ChanParser:
 
             if (seg1['direction'] == 'up' and seg2['direction'] == 'down' and seg3['direction'] == 'up') or \
                (seg1['direction'] == 'down' and seg2['direction'] == 'up' and seg3['direction'] == 'down'):
-                
+
                 high = min(seg1['high'], seg2['high'], seg3['high'])
                 low = max(seg1['low'], seg2['low'], seg3['low'])
 
@@ -275,77 +355,162 @@ class ChanParser:
         return zhongshus
 
     def detect_buy_signals(self) -> List[Dict]:
-        """识别买点信号（一买、二买、三买）"""
+        """
+        识别买点信号
+        优化版逻辑：
+        1. 一买：线段从下跌转为上涨（但下降通道中不买入）
+        2. 二买：回调后再次上涨形成
+        3. 过滤中继底：下降通道中不买入
+        """
         signals = []
 
-        if self.segments is None:
+        if self.segments is None or self.bars is None:
             return signals
 
-        # 简化的一买识别：线段从下跌转为上涨
         for i in range(len(self.segments) - 1):
             seg1 = self.segments[i]
             seg2 = self.segments[i+1]
 
             if seg1['direction'] == 'down' and seg2['direction'] == 'up':
+                seg2_end_idx = seg2['end_index']
+
+                if seg2_end_idx >= len(self.bars):
+                    continue
+
+                channel_info = self._check_price_channel(self.bars, seg2_end_idx)
+
+                if channel_info['is_downtrend']:
+                    signals.append({
+                        'type': SignalType.BUY_1.value,
+                        'index': seg2_end_idx,
+                        'price': seg2['low'],
+                        'stop_loss': seg1['low'],
+                        'description': '一买-下降通道-中继底',
+                        'is_valid': False,
+                        'filter_reason': '中继底过滤'
+                    })
+                    continue
+
+                ma_ok = self._check_ma_filter(seg2['low'], seg2_end_idx)
+
                 signals.append({
                     'type': SignalType.BUY_1.value,
-                    'index': seg2['start_index'],
+                    'index': seg2_end_idx,
                     'price': seg2['low'],
                     'stop_loss': seg1['low'],
-                    'description': '下跌转上涨一买'
+                    'description': '一买-有效信号' if ma_ok else '一买-均线未站上',
+                    'is_valid': ma_ok,
+                    'channel_check': channel_info
                 })
 
-        # 简化的二买识别：回调后再次上涨
-        for i in range(len(self.segments) - 2):
-            seg1 = self.segments[i]
-            seg2 = self.segments[i+1]
-            seg3 = self.segments[i+2]
+        self._detect_buy2_signals(signals)
+        self._detect_buy3_signals(signals)
 
-            if seg1['direction'] == 'down' and seg2['direction'] == 'up' and seg3['direction'] == 'down':
-                signals.append({
-                    'type': SignalType.BUY_2.value,
-                    'index': seg3['end_index'],
-                    'price': seg3['low'],
-                    'stop_loss': seg1['low'],
-                    'description': '回调二买'
-                })
+        self.signals = signals
+        return signals
 
-        # 识别三买（中枢上沿不回踩）
-        if self.zhongshus:
-            for zs in self.zhongshus:
-                for i, seg in enumerate(self.segments):
-                    if seg['start_index'] > zs['end_index'] and seg['direction'] == 'up':
-                        if i + 1 < len(self.segments):
-                            next_seg = self.segments[i+1]
-                            if next_seg['direction'] == 'down' and next_seg['low'] > zs['high']:
+    def _detect_buy2_signals(self, signals: List[Dict]):
+        """
+        识别二买信号（简化宽松版）
+        二买逻辑：上涨回调后再次上涨，回调低点不跌破前一波低点
+        """
+        if self.segments is None or self.bars is None or self.fengs is None:
+            return
+
+        for i in range(len(self.segments) - 1):
+            seg = self.segments[i]
+
+            if seg['direction'] != 'up' or i == 0:
+                continue
+
+            prev_seg = self.segments[i - 1]
+            if prev_seg['direction'] != 'down':
+                continue
+
+            base_low = prev_seg['low']
+            seg_end_idx = min(seg['end_index'], len(self.bars) - 1)
+
+            for j in range(seg['start_index'], seg_end_idx + 1):
+                if j + 2 >= len(self.bars):
+                    continue
+
+                bar_j = self.bars.iloc[j]
+                bar_j1 = self.bars.iloc[j + 1]
+                bar_j2 = self.bars.iloc[j + 2]
+
+                if bar_j['close'] < bar_j1['close'] and bar_j1['close'] > bar_j2['close']:
+                    callback_low = bar_j1['low']
+
+                    if callback_low < base_low:
+                        continue
+
+                    entry_idx = j + 2
+                    if entry_idx >= len(self.bars):
+                        continue
+
+                    entry_price = bar_j2['close']
+                    channel_info = self._check_price_channel(self.bars, entry_idx)
+                    ma_ok = self._check_ma_filter(entry_price, entry_idx)
+
+                    if ma_ok and not channel_info['is_downtrend']:
+                        signals.append({
+                            'type': SignalType.BUY_2.value,
+                            'index': j + 1,
+                            'price': base_low,
+                            'stop_loss': base_low,
+                            'description': '二买-有效信号',
+                            'is_valid': True,
+                            'base_low': base_low,
+                            'callback_low': callback_low,
+                            'entry_price': entry_price,
+                            'entry_idx': entry_idx
+                        })
+                    break
+
+    def _detect_buy3_signals(self, signals: List[Dict]):
+        """识别三买（中枢上沿不回踩）"""
+        if not self.zhongshus or self.segments is None or self.bars is None:
+            return
+
+        for zs in self.zhongshus:
+            for i, seg in enumerate(self.segments):
+                if seg['start_index'] > zs['end_index'] and seg['direction'] == 'up':
+                    if i + 1 < len(self.segments):
+                        next_seg = self.segments[i+1]
+                        if next_seg['direction'] == 'down' and next_seg['low'] > zs['high']:
+                            current_idx = next_seg['end_index']
+
+                            if current_idx >= len(self.bars):
+                                continue
+
+                            current_price = self.bars.iloc[current_idx]['close']
+
+                            ma_ok = self._check_ma_filter(current_price, current_idx)
+                            channel_info = self._check_price_channel(self.bars, current_idx)
+
+                            if ma_ok and not channel_info['is_downtrend']:
                                 signals.append({
                                     'type': SignalType.BUY_3.value,
                                     'index': next_seg['end_index'],
                                     'price': next_seg['low'],
                                     'stop_loss': zs['high'],
-                                    'description': '中枢上沿不回踩三买',
+                                    'description': '三买-有效信号',
+                                    'is_valid': True,
                                     'zhongshu_high': zs['high'],
                                     'zhongshu_low': zs['low']
                                 })
-                        break
-
-        # 如果没有线段信号，尝试使用笔信号
-        if not signals and self.pens:
-            for i in range(len(self.pens) - 1):
-                pen1 = self.pens[i]
-                pen2 = self.pens[i+1]
-                
-                if pen1['direction'] == 'down' and pen2['direction'] == 'up':
-                    signals.append({
-                        'type': SignalType.BUY_1.value,
-                        'index': pen2['start_index'],
-                        'price': pen2['low'],
-                        'stop_loss': pen1['low'],
-                        'description': '笔级别一买'
-                    })
-
-        self.signals = signals
-        return signals
+                            else:
+                                signals.append({
+                                    'type': SignalType.BUY_3.value,
+                                    'index': next_seg['end_index'],
+                                    'price': next_seg['low'],
+                                    'stop_loss': zs['high'],
+                                    'description': '三买-条件未满足',
+                                    'is_valid': False,
+                                    'zhongshu_high': zs['high'],
+                                    'zhongshu_low': zs['low']
+                                })
+                    break
 
     def _check_beichi(self, down_seg: Dict, up_seg: Dict) -> bool:
         """检查背驰"""
@@ -382,8 +547,20 @@ class ChanParser:
         return result
 
     def get_latest_signal(self) -> Optional[Dict]:
-        """获取最新信号"""
+        """获取最新有效信号"""
         if self.signals is None or len(self.signals) == 0:
             return None
 
-        return sorted(self.signals, key=lambda x: x['index'])[-1]
+        valid_signals = [s for s in self.signals if s.get('is_valid', False)]
+
+        if not valid_signals:
+            return None
+
+        return sorted(valid_signals, key=lambda x: x['index'])[-1]
+
+    def get_valid_signals(self) -> List[Dict]:
+        """获取所有有效信号"""
+        if self.signals is None:
+            return []
+
+        return [s for s in self.signals if s.get('is_valid', False)]
